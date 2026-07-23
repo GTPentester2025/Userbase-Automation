@@ -1,0 +1,13 @@
+{
+  "name": "userbase-automation-web-model",
+  "version": "1.0.0",
+  "description": "Browser-only, pure-JS web model of the DataMart userbase automation pipeline (faithful port of the Python modules).",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "dummy": "node make_dummy_inputs.js"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
