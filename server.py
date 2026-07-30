@@ -1,4 +1,5 @@
 import io
+import shutil
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +30,7 @@ def create_app(runs_dir=None) -> FastAPI:
     @app.post("/api/runs")
     def create_run(file: UploadFile):
         rid = store.create_run()
-        store.save_upload(rid, "datamart", file.filename, file.file.read())
+        store.save_upload_stream(rid, "datamart", file.filename, file.file)
         return {"run_id": rid, "manifest": store.manifest(rid)}
 
     @app.get("/api/runs")
@@ -48,7 +49,7 @@ def create_app(runs_dir=None) -> FastAPI:
     @app.post("/api/runs/{rid}/inputs/{slot}")
     def upload_input(rid: str, slot: str, file: UploadFile):
         try:
-            store.save_upload(rid, slot, file.filename, file.file.read())
+            store.save_upload_stream(rid, slot, file.filename, file.file)
         except ValueError as e:
             raise HTTPException(400, str(e))
         return store.manifest(rid)
@@ -97,10 +98,11 @@ def create_app(runs_dir=None) -> FastAPI:
 
     @app.post("/api/runs/{rid}/stages/{n}/replace")
     def replace(rid: str, n: int, file: UploadFile):
-        data = file.file.read()
         ts = datetime.now().strftime("%H%M%S")
         p = store.base_dir / rid / "uploads" / f"{ts}_replacement_stage{n:02d}_{file.filename}"
-        p.write_bytes(data)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("wb") as out:
+            shutil.copyfileobj(file.file, out, length=1024 * 1024)
         try:
             df = read_table(p, 0)
         except Exception as e:

@@ -49,13 +49,33 @@ class RunStore:
                 out.append(self.manifest(p.name))
         return out
 
+    def _upload_dest(self, run_id, slot, filename) -> tuple[str, Path]:
+        ts = datetime.now().strftime("%H%M%S")
+        rel = f"uploads/{ts}_{slot}_{filename}"
+        return rel, self.base_dir / run_id / rel
+
     def save_upload(self, run_id, slot, filename, data: bytes) -> str:
         if slot not in config.INPUT_SLOTS:
             raise ValueError(f"Unknown input slot: {slot}")
-        ts = datetime.now().strftime("%H%M%S")
-        rel = f"uploads/{ts}_{slot}_{filename}"
-        p = self.base_dir / run_id / rel
+        rel, p = self._upload_dest(run_id, slot, filename)
         p.write_bytes(data)
+        m = self.manifest(run_id)
+        m["inputs"][slot] = rel
+        self.save_manifest(run_id, m)
+        return str(p)
+
+    def save_upload_stream(self, run_id, slot, filename, fileobj) -> str:
+        """Stream an upload to disk in 1 MB chunks — constant memory regardless of
+        file size, so a 200k-row × 50-col Datamart never has to sit fully in RAM."""
+        if slot not in config.INPUT_SLOTS:
+            raise ValueError(f"Unknown input slot: {slot}")
+        rel, p = self._upload_dest(run_id, slot, filename)
+        try:
+            fileobj.seek(0)
+        except Exception:
+            pass
+        with p.open("wb") as out:
+            shutil.copyfileobj(fileobj, out, length=1024 * 1024)
         m = self.manifest(run_id)
         m["inputs"][slot] = rel
         self.save_manifest(run_id, m)

@@ -3,18 +3,90 @@
 
 // ---------- api client ----------
 async function jfetch(url, opts) {
-  const r = await fetch(url, opts);
+  const method = (opts && opts.method) || 'GET';
+  const t0 = (self.performance || Date).now();
+  logEvent('req', `${method} ${url}`);
+  let r;
+  try {
+    r = await fetch(url, opts);
+  } catch (e) {
+    logEvent('error', `${method} ${url} — network error`, String((e && e.message) || e));
+    throw new Error('Network error — is the server running?');
+  }
+  const ms = Math.round(((self.performance || Date).now()) - t0);
   if (!r.ok) {
     let msg = r.statusText;
-    try { msg = (await r.json()).detail || msg; } catch (e) { /* keep statusText */ }
-    throw new Error(msg);
+    try { msg = (await r.clone().json()).detail || msg; } catch (e) { /* non-JSON body */ }
+    logEvent('error', `${r.status} ${method} ${url} (${ms}ms)`, msg);
+    throw new Error(`${msg} (${r.status})`);
   }
+  logEvent('resp', `${r.status} ${method} ${url} (${ms}ms)`);
   return r.json();
 }
 async function upload(url, file) {
   const fd = new FormData();
   fd.append('file', file);
+  logEvent('info', `Uploading "${file.name}" (${(file.size / 1e6).toFixed(1)} MB)`);
   return jfetch(url, { method: 'POST', body: fd });
+}
+
+// ---------- activity log ----------
+const LOG = [];
+const LOG_MAX = 1000;
+function _logTime() {
+  const d = new Date();
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+function logEvent(level, msg, detail) {
+  const e = { ts: _logTime(), level, msg: String(msg), detail: detail ? String(detail) : '' };
+  LOG.push(e);
+  if (LOG.length > LOG_MAX) LOG.shift();
+  _appendLogRow(e);
+  _updateLogBadge();
+}
+function _logLineText(e) {
+  return `[${e.ts}] ${e.level.toUpperCase().padEnd(5)} ${e.msg}${e.detail ? '  |  ' + e.detail : ''}`;
+}
+function _appendLogRow(e) {
+  const body = document.getElementById('logbody');
+  if (!body) return;
+  const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 48;
+  const row = el('div', `logrow lv-${e.level}`,
+    `<span class="lt">${e.ts}</span><span class="ll">${esc(e.level)}</span>` +
+    `<span class="lm">${esc(e.msg)}${e.detail ? ` <span class="ld">${esc(e.detail)}</span>` : ''}</span>`);
+  body.appendChild(row);
+  if (atBottom) body.scrollTop = body.scrollHeight;
+}
+function _updateLogBadge() {
+  const b = document.getElementById('log-badge');
+  if (!b) return;
+  const errs = LOG.reduce((n, e) => n + (e.level === 'error' ? 1 : 0), 0);
+  b.textContent = errs ? `${errs}!` : String(LOG.length);
+  b.classList.toggle('has-err', errs > 0);
+}
+function _renderAllLogs() {
+  const body = document.getElementById('logbody');
+  if (!body) return;
+  body.innerHTML = '';
+  LOG.forEach(_appendLogRow);
+  body.scrollTop = body.scrollHeight;
+}
+async function copyLog() {
+  const text = LOG.map(_logLineText).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Activity log copied', 'good');
+  } catch (e) {
+    const ta = el('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    let done = false;
+    try { done = document.execCommand('copy'); } catch (_) { /* ignore */ }
+    ta.remove();
+    toast(done ? 'Activity log copied' : 'Copy failed — open the log and copy manually', done ? 'good' : 'warn');
+  }
 }
 // Base path of the app as served. Locally that is "/"; behind the portal the app
 // lives under "/userbase-automation/". Deriving it from the current document keeps
@@ -95,9 +167,10 @@ async function guard(fn, doneMsg) {
   setBusy(true);
   try {
     await fn();
-    if (doneMsg) toast(doneMsg, 'good');
+    if (doneMsg) { toast(doneMsg, 'good'); logEvent('info', doneMsg); }
   } catch (e) {
     toast(e.message, 'warn');
+    logEvent('error', 'Action failed', e.message);
   } finally {
     setBusy(false);
     if (state.runId) await refresh(true);
@@ -142,6 +215,7 @@ async function renderHome() {
       const r = await api.createRun(inp.files[0]);
       state.runId = r.run_id;
       state.viewStage = null;
+      logEvent('info', `Run created: ${r.run_id}`);
     }, 'Run created — Datamart uploaded');
   });
   dz.appendChild(inp);
@@ -169,7 +243,12 @@ async function renderHome() {
       });
       v.appendChild(list);
     }
-  } catch (e) { /* server down: home stays usable */ }
+  } catch (e) {
+    // server down / wrong build: home stays usable, but make the reason explicit.
+    logEvent('error', 'Cannot reach the backend at ' + BASE + 'api/runs', e.message);
+    logEvent('info', 'If this is the portal, the app likely still serves the old static '
+      + 'build — redeploy so /userbase-automation/ proxies to the FastAPI service.');
+  }
 }
 
 // ---------- render: run ----------
@@ -372,8 +451,14 @@ function renderPanel() {
     actions.appendChild(mkBtn('Run all', () => guard(async () => {
       const r = await api.runAll(state.runId);
       state.viewStage = null;
-      if (r.blocked_on) toast(`Waiting for: ${r.blocked_on.map(s => SLOT_LABELS[s] || s).join(', ')}`, 'warn');
-      else toast('Pipeline complete', 'good');
+      if (r.blocked_on) {
+        const need = r.blocked_on.map(s => SLOT_LABELS[s] || s).join(', ');
+        toast(`Waiting for: ${need}`, 'warn');
+        logEvent('info', `Run-all paused — needs input: ${need}`);
+      } else {
+        toast('Pipeline complete', 'good');
+        logEvent('info', 'Run-all complete — all 14 stages done');
+      }
     })));
     const missing = m.stage_meta.find(s => s.n === frontier());
     actions.appendChild(mkBtn('Continue ▸', () => guard(async () => {
@@ -418,5 +503,16 @@ $('#home-btn').addEventListener('click', () => {
   renderHome();
 });
 
+// ---------- activity log wiring ----------
+$('#log-btn').addEventListener('click', () => {
+  const dock = $('#logdock');
+  dock.hidden = !dock.hidden;
+  if (!dock.hidden) _renderAllLogs();
+});
+$('#log-copy').addEventListener('click', copyLog);
+$('#log-clear').addEventListener('click', () => { LOG.length = 0; _renderAllLogs(); _updateLogBadge(); });
+$('#log-hide').addEventListener('click', () => { $('#logdock').hidden = true; });
+
 // ---------- boot ----------
+logEvent('info', `Userbase Automation ready — API base "${BASE}"`);
 renderHome();

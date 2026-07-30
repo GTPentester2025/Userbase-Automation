@@ -275,3 +275,37 @@ button{font-family:inherit}
 .run-row .rmeta{margin-left:auto;font-size:.68rem;color:var(--muted)}
 .fmt-sel{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;color:var(--muted);
   font-size:.72rem;padding:.3rem .4rem}
+
+/* ---------- activity log dock ---------- */
+#log-btn{position:relative}
+.log-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+  background:rgba(255,255,255,.09);color:var(--muted);font-size:.64rem;font-weight:700;line-height:1}
+.log-badge.has-err{background:var(--red);color:#fff}
+
+.logdock{flex:0 0 auto;height:34vh;min-height:180px;display:flex;flex-direction:column;overflow:hidden;
+  border-radius:var(--radius);background:var(--glass);backdrop-filter:blur(20px) saturate(140%);
+  border:1px solid rgba(203,162,74,.16);box-shadow:var(--shadow),inset 0 0 60px rgba(203,162,74,.04)}
+.logdock[hidden]{display:none}
+.logdock-head{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.logdock-head h2{font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);
+  font-family:'DM Sans',sans-serif;font-weight:600}
+.logdock-hint{font-size:.72rem;color:var(--faint)}
+.logdock-actions{margin-left:auto;display:flex;gap:8px}
+.logdock-actions .ghost-btn{padding:.35rem .65rem;font-size:.72rem}
+
+.logbody{flex:1;min-height:0;overflow:auto;padding:8px 10px;background:rgba(0,0,0,.28);
+  font-size:.74rem;line-height:1.5}
+.logrow{display:flex;gap:10px;padding:1px 6px;border-radius:6px;white-space:pre-wrap;word-break:break-word}
+.logrow:hover{background:rgba(255,255,255,.03)}
+.logrow .lt{color:var(--faint);flex:0 0 auto}
+.logrow .ll{flex:0 0 42px;text-transform:uppercase;font-size:.6rem;font-weight:700;letter-spacing:.05em;
+  align-self:center;color:var(--muted)}
+.logrow .lm{flex:1;color:var(--cream)}
+.logrow .ld{color:var(--muted)}
+.logrow.lv-req .ll{color:#7db7e8}
+.logrow.lv-resp .ll{color:var(--grn)}
+.logrow.lv-resp .lm{color:var(--muted)}
+.logrow.lv-info .ll{color:var(--gold)}
+.logrow.lv-error{background:rgba(224,87,75,.10)}
+.logrow.lv-error .ll,.logrow.lv-error .lm{color:var(--red)}
+@media (max-width:860px){.logdock-hint{display:none}}
