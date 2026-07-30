@@ -20,8 +20,9 @@
       </div>
     </div>
     <div class="top-right">
-      <div class="progress-pill">
-        <span class="count" id="pg-count">0 / 11</span>
+      <button class="ghost-btn" id="home-btn" hidden>Runs</button>
+      <div class="progress-pill" hidden id="pg-pill">
+        <span class="count" id="pg-count">0 / 14</span>
         <span class="bar"><i id="pg-bar"></i></span>
       </div>
       <button class="ghost-btn" id="jump-latest" hidden>
@@ -32,7 +33,7 @@
   </header>
 
   <div class="stage">
-    <nav class="metro" aria-label="Pipeline stages">
+    <nav class="metro" aria-label="Pipeline stages" id="metro" hidden>
       <h2>Pipeline</h2>
       <div class="rail-line"></div>
       <ol id="stations"></ol>
@@ -47,15 +48,6 @@
 
 <div class="toast-wrap" id="toasts" aria-live="polite"></div>
 
-<script src="vendor/xlsx.full.min.js"></script>
-<script src="pipeline/utils.js"></script>
-<script src="pipeline/config.js"></script>
-<script src="pipeline/io.js"></script>
-<script src="pipeline/zip.js"></script>
-<script src="pipeline/removal_logger.js"></script>
-<script src="pipeline/report.js"></script>
-<script src="pipeline/stages.js"></script>
-<script src="pipeline/engine.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

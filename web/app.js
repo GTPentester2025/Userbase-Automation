@@ -1,379 +1,422 @@
-/* app.js — Pipeline Studio controller (glass metro UI + checkpoint nav). */
-(function () {
-  "use strict";
+/* Userbase Automation — Pipeline Studio (API-backed) */
+'use strict';
 
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  var ZONES = UBA.config.ZONES;
-  // Which reference inputs each stage needs, requested at that step.
-  var STEP_INPUTS = {
-    3: ZONES.map(function (z) { return "zone:" + z; }),
-    7: ["saviynt", "o365", "aurora", "bsc"],
-    10: ["ceo"]
-  };
-  var INPUT_META = {
-    datamart: { label: "DataMart", hint: "xlsx or csv" },
-    saviynt: { label: "Saviynt", hint: "xlsx or csv" },
-    o365: { label: "O365", hint: "sheet: Export" },
-    aurora: { label: "Aurora Users", hint: "sheet: Aurora Userbase" },
-    bsc: { label: "BSC users", hint: "sheet: main" },
-    ceo: { label: "CEO Minus", hint: "xlsx · dated sheets" }
-  };
-  ZONES.forEach(function (z) { INPUT_META["zone:" + z] = { label: z + " zone data", hint: "xlsx · Action" }; });
-  function metaLabel(k) { return (INPUT_META[k] || { label: k }).label; }
-  function metaHint(k) { return (INPUT_META[k] || { hint: "xlsx" }).hint; }
-
-  // ---- SVG icons (Lucide-style, stroke=currentColor) --------------------
-  function svg(inner) {
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-      'stroke-linecap="round" stroke-linejoin="round">' + inner + "</svg>";
+// ---------- api client ----------
+async function jfetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).detail || msg; } catch (e) { /* keep statusText */ }
+    throw new Error(msg);
   }
-  var ICON = {
-    database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>',
-    columns: '<path d="M3 5h18M9 5v14M3 5v14h18V5"/>',
-    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
-    shieldcheck: '<path d="M12 3 5 6v5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="m9 12 2 2 4-4"/>',
-    userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6"/><path d="M18 8v6M15 11h6"/>',
-    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
-    sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
-    fingerprint: '<circle cx="12" cy="11" r="8"/><path d="M12 7a4 4 0 0 0-4 4v3M16 11a4 4 0 0 0-2-3.5M12 11v5"/>',
-    merge: '<circle cx="6" cy="18" r="2.5"/><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6H14a2 2 0 0 1 2 2v1.5"/>',
-    shield: '<path d="M12 3 5 6v5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/>',
-    mailx: '<rect x="3" y="5" width="14" height="14" rx="2"/><path d="m3 7 7 5 3-2"/><path d="m17 8 5 5M22 8l-5 5"/>',
-    download: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>',
-    upload: '<path d="M12 21V9M7 14l5-5 5 5"/><path d="M5 3h14"/>',
-    play: '<path d="M6 4v16l14-8z"/>',
-    forward: '<path d="M4 4v16l10-8zM14 4v16l6-4V8z"/>',
-    archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/>',
-    check: '<path d="m5 13 4 4L19 7"/>',
-    trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/>'
-  };
-  function icon(name) { return svg(ICON[name] || ""); }
+  return r.json();
+}
+async function upload(url, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  return jfetch(url, { method: 'POST', body: fd });
+}
+// Base path of the app as served. Locally that is "/"; behind the portal the app
+// lives under "/userbase-automation/". Deriving it from the current document keeps
+// every API/download URL relative to the mount point, so the same build works in
+// both places (nginx strips the subpath before it reaches the backend).
+const BASE = new URL('.', location.href).pathname;   // e.g. "/" or "/userbase-automation/"
+const api = {
+  runs: () => jfetch(`${BASE}api/runs`),
+  run: id => jfetch(`${BASE}api/runs/${id}`),
+  createRun: file => upload(`${BASE}api/runs`, file),
+  uploadInput: (id, slot, file) => upload(`${BASE}api/runs/${id}/inputs/${slot}`, file),
+  advance: id => jfetch(`${BASE}api/runs/${id}/advance`, { method: 'POST' }),
+  runAll: id => jfetch(`${BASE}api/runs/${id}/run-all`, { method: 'POST' }),
+  preview: (id, n, kind, page, q) =>
+    jfetch(`${BASE}api/runs/${id}/stages/${n}/preview?kind=${kind}&page=${page}&q=${encodeURIComponent(q || '')}`),
+  replace: (id, n, file) => upload(`${BASE}api/runs/${id}/stages/${n}/replace`, file),
+  downloadUrl: (id, n, kind, fmt) => `${BASE}api/runs/${id}/stages/${n}/download?kind=${kind}&fmt=${fmt}`,
+  logsUrl: id => `${BASE}api/runs/${id}/logs.zip`,
+};
 
-  // station index -> icon
-  var STATION_ICON = ["database", "columns", "mail", "shieldcheck", "userplus", "copy",
-    "sliders", "fingerprint", "merge", "shield", "mailx", "download"];
-  // short tag under each station name
-  var STATION_TAG = ["DataMart", "keep required", "blank / noemail", "Action=OK · zones",
-    "zone add lists", "unique email", "OT yes/no", "SSO · Aurora · BSC", "not-found rows",
-    "re-check zones", "latest sheet", "3 reports"];
+// ---------- state ----------
+const state = {
+  runId: null, manifest: null,
+  viewStage: null,          // null = frontier
+  previewKind: 'kept', page: 1, q: '',
+  fmt: 'xlsx', busy: false,
+};
 
-  var STAGE_LABELS = ["Load Inputs"].concat(UBA.stages.STAGES.map(function (s) { return s[1]; }));
+const ZONES = ['MAZ', 'SAZ', 'NAZ', 'APC', 'AFR', 'EUR', 'GHQ', 'Growth'];
+const SLOT_LABELS = {
+  datamart: 'Datamart', o365: 'O365 Export', saviynt: 'Saviynt', aurora: 'Aurora Users',
+  bsc: 'BSC Users', ceo: 'CEO File',
+};
+ZONES.forEach(z => { SLOT_LABELS[`zone_${z}`] = `${z} zone file`; });
 
-  // ---- state ------------------------------------------------------------
-  var engine = null;
-  var latest = -1;              // highest completed stage index (0 = loaded)
-  var viewIdx = -1;            // stage currently shown in the panel
-  var results = {};           // index -> StageResult (or synthetic for load)
-  var previews = {};          // index -> {columns, rows}
-  var provided = Object.create(null);  // input key -> true (already given to engine)
-  var picks = Object.create(null);     // input key -> File (staged in a collector)
-  var inputsSatisfied = Object.create(null); // stage index -> collector completed
-  var pickedDatamart = null;
+const DESCRIPTIONS = {
+  1: 'Keep only the 21 SOP columns from the Datamart. Every other column is dropped (logged); missing required columns are created blank.',
+  2: 'The filtered Datamart becomes the Base Userbase — the master working file for the rest of the run.',
+  3: 'Remove rows whose Employee Email is blank, contains "noemail", or is missing "@". Removed rows are stored and downloadable.',
+  4: 'Add the OT (Yes/No) column. Yes requires Job Family Group = SUPPLY, an allowed Job Family, and an allowed Job Profile.',
+  5: 'Match Employee Email against the O365 file (Mail) and populate SSOUPN as per AD (O365) from UserPrincipalName.',
+  6: 'Match Employee Email against the Saviynt file (User Email) and populate SSOUPN as per Saviynt from SSO UPN.',
+  7: 'Per zone with a file: users must appear with Action = OK, else removed; kept users are marked "<Zone> Validated". Zones without a file pass through unvalidated. All 8 zone files are optional.',
+  8: 'Append users from each zone file\'s additional tab who are missing from the Userbase, marked "<Zone> Additional".',
+  9: 'Summary of the zone loop — per-zone validated / removed / appended counts and any zones that had no file.',
+  10: 'Flag Aurora (Yes/No) via E-MAIL; Aurora users missing from the Userbase are appended with Aurora = Yes.',
+  11: 'Flag BSC (Yes/No) via Email - Primary Work; missing BSC users are appended with BSC = Yes.',
+  12: 'Remove users whose Employee Email or either SSOUPN matches Mail ID in the latest dated CEO sheet.',
+  13: 'Remove duplicate Employee Email rows — first occurrence kept.',
+  14: 'Evaluate the SOP checklist and write Final Userbase.xlsx, Removed_Users_Report.xlsx and Automation_Report.xlsx.',
+};
 
-  var $ = function (id) { return document.getElementById(id); };
-
-  // ---- helpers ----------------------------------------------------------
-  function stamp() {
-    var d = new Date(), p = function (n) { return String(n).padStart(2, "0"); };
-    return "" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "_" +
-      p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+// ---------- dom helpers ----------
+const $ = s => document.querySelector(s);
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function toast(msg, kind) {
+  const t = el('div', `toast ${kind || 'info'}`,
+    `<span class="ic">${kind === 'warn' ? '!' : kind === 'good' ? '✓' : 'i'}</span><span>${esc(msg)}</span>`);
+  $('#toasts').appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+function setBusy(on) {
+  state.busy = on;
+  $('#busybar').classList.toggle('on', on);
+  document.querySelectorAll('.btn').forEach(b => { b.disabled = on || b.dataset.forceDisabled === '1'; });
+}
+async function guard(fn, doneMsg) {
+  if (state.busy) return;
+  setBusy(true);
+  try {
+    await fn();
+    if (doneMsg) toast(doneMsg, 'good');
+  } catch (e) {
+    toast(e.message, 'warn');
+  } finally {
+    setBusy(false);
+    if (state.runId) await refresh(true);
   }
-  function esc(s) {
-    return String(s).replace(/[&<>"]/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
-    });
-  }
-  function readAB(f) { return new Promise(function (r, j) { var x = new FileReader(); x.onload = function () { r(x.result); }; x.onerror = j; x.readAsArrayBuffer(f); }); }
-  function readTx(f) { return new Promise(function (r, j) { var x = new FileReader(); x.onload = function () { r(x.result); }; x.onerror = j; x.readAsText(f); }); }
-  function csvShim(t) { return { sheetNames: ["CSV"], table: function () { return t; }, firstTable: function () { return t; } }; }
-  async function readWb(f) { return /\.csv$/i.test(f.name) ? csvShim(UBA.io.readCsv(await readTx(f))) : UBA.io.readWorkbook(await readAB(f)); }
-  async function readTable(f) { return /\.csv$/i.test(f.name) ? UBA.io.readCsv(await readTx(f)) : UBA.io.readWorkbook(await readAB(f)).firstTable(); }
-  function download(bytes, name, mime) {
-    var b = new Blob([bytes], { type: mime || "application/octet-stream" }), u = URL.createObjectURL(b);
-    var a = document.createElement("a"); a.href = u; a.download = name; document.body.appendChild(a);
-    a.click(); a.remove(); URL.revokeObjectURL(u);
-  }
-  function yieldUI() { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); }
-  function busy(on) { $("busybar").classList.toggle("on", on); }
-  function countUp(el, from, to) {
-    if (reduced || from === to) { el.textContent = to.toLocaleString(); return; }
-    var s = performance.now(), dur = 650;
-    (function tick(now) {
-      var p = Math.min(1, (now - s) / dur), e = 1 - Math.pow(1 - p, 3);
-      el.textContent = Math.round(from + (to - from) * e).toLocaleString();
-      if (p < 1) requestAnimationFrame(tick);
-    })(s);
-  }
-  function toast(kind, ic, html) {
-    var t = document.createElement("div"); t.className = "toast " + kind;
-    t.innerHTML = '<span class="ic">' + icon(ic) + "</span><span>" + html + "</span>";
-    $("toasts").appendChild(t);
-    setTimeout(function () { t.remove(); }, 3200);
-  }
+}
 
-  // ---- metro rail -------------------------------------------------------
-  function buildStations() {
-    var ol = $("stations"); ol.innerHTML = "";
-    STAGE_LABELS.forEach(function (label, i) {
-      var li = document.createElement("li");
-      li.className = "station"; li.id = "sta-" + i;
-      li.innerHTML =
-        '<span class="dot">' + icon(STATION_ICON[i]) + '<span class="idx">' + i + "</span></span>" +
-        '<span class="rm-badge"></span>' +
-        '<span class="meta"><span class="name">' + esc(label) + "</span>" +
-        '<span class="tag">' + esc(STATION_TAG[i]) + "</span></span>";
-      li.addEventListener("click", function () {
-        if (i <= latest) showStage(i);
+// ---------- data ----------
+async function refresh(rerenderOnly) {
+  if (!state.runId) { renderHome(); return; }
+  if (!rerenderOnly || true) state.manifest = await api.run(state.runId);
+  render();
+}
+function stageEntry(n) { return state.manifest.stages[String(n)]; }
+function frontier() { return state.manifest.frontier; }
+function viewedStage() {
+  if (state.viewStage) return state.viewStage;
+  return Math.min(frontier(), 14);
+}
+function completedCount() { return Object.keys(state.manifest.stages).length; }
+
+// ---------- render: home ----------
+async function renderHome() {
+  $('#metro').hidden = true;
+  $('#pg-pill').hidden = true;
+  $('#jump-latest').hidden = true;
+  $('#home-btn').hidden = true;
+  const panel = $('#panel');
+  panel.innerHTML = '';
+  const v = el('div', 'view load');
+  v.appendChild(el('h2', null, 'Start a run'));
+  v.appendChild(el('div', 'lead',
+    'Upload the Datamart extract to begin a new pipeline run. Every stage stores its kept, removed and added rows — download or replace the working file at any point.'));
+  const drops = el('div', 'drops');
+  const dz = el('label', 'drop drop-lg',
+    `<span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+     Upload Datamart — new run</span><span class="f">.xlsx or .csv · first sheet is used</span>`);
+  const inp = el('input');
+  inp.type = 'file'; inp.accept = '.xlsx,.csv';
+  inp.addEventListener('change', () => {
+    if (!inp.files.length) return;
+    guard(async () => {
+      const r = await api.createRun(inp.files[0]);
+      state.runId = r.run_id;
+      state.viewStage = null;
+    }, 'Run created — Datamart uploaded');
+  });
+  dz.appendChild(inp);
+  drops.appendChild(dz);
+  v.appendChild(drops);
+  panel.appendChild(v);
+
+  try {
+    const runs = await api.runs();
+    if (runs.length) {
+      v.appendChild(el('div', 'lead', ''));
+      const head = el('div', null, '<h2 style="font-size:1.05rem">Past runs</h2>');
+      v.appendChild(head);
+      const list = el('div', 'runs-list');
+      runs.forEach(m => {
+        const done = Object.keys(m.stages).length;
+        const row = el('div', 'run-row',
+          `<span class="rid mono">${esc(m.run_id)}</span>
+           <span class="rmeta">${esc(m.status)} · ${done} / 14 stages</span>`);
+        row.addEventListener('click', () => {
+          state.runId = m.run_id; state.viewStage = null;
+          refresh();
+        });
+        list.appendChild(row);
       });
-      ol.appendChild(li);
-    });
-  }
-  function updateMetro() {
-    for (var i = 0; i < STAGE_LABELS.length; i++) {
-      var li = $("sta-" + i); if (!li) continue;
-      li.classList.remove("done", "removed", "active", "viewing", "clickable");
-      var res = results[i];
-      if (i < latest || (i === latest && i !== viewIdx && latest === 11)) {
-        li.classList.add(res && res.deletedCount ? "removed" : "done");
-      } else if (i === latest) {
-        li.classList.add(latest === 11 ? (res && res.deletedCount ? "removed" : "done") : "active");
-      }
-      if (res && res.deletedCount) {
-        li.classList.add("removed");
-        li.querySelector(".rm-badge").textContent = "−" + res.deletedCount;
-      }
-      if (i <= latest) li.classList.add("clickable");
-      if (i === viewIdx) li.classList.add("viewing");
+      v.appendChild(list);
     }
-    // progress pill
-    $("pg-count").textContent = Math.max(0, latest) + " / 11";
-    $("pg-bar").style.width = (Math.max(0, latest) / 11 * 100) + "%";
-    $("jump-latest").hidden = (viewIdx === latest);
-  }
+  } catch (e) { /* server down: home stays usable */ }
+}
 
-  // ---- load view --------------------------------------------------------
-  function renderLoad() {
-    viewIdx = -1;
-    var f = pickedDatamart;
-    $("panel").innerHTML =
-      '<div class="view load">' +
-      "<h2>Start with your DataMart</h2>" +
-      '<p class="lead">Load the DataMart to begin. Each later step asks for the files it ' +
-      "needs, when it needs them — zone files at Zone Validation, identity files at " +
-      "Enrichment, CEO file at the CEO filter.</p>" +
-      '<div class="drops"><label class="drop drop-lg' + (f ? " filled" : "") + '" id="drop-datamart">' +
-      '<span class="k">' + icon(f ? "check" : "database") + "DataMart</span>" +
-      '<span class="f">' + (f ? esc(f.name) : "xlsx or csv") + "</span>" +
-      '<input type="file" accept=".xlsx,.csv" id="in-datamart"></label></div>' +
-      '<div class="load-foot"><button class="btn primary wide" id="btn-load"' + (f ? "" : " disabled") + ">" +
-      icon("play") + "Load &amp; start</button>" +
-      '<span class="tag mono" id="load-note"></span></div></div>';
-    $("in-datamart").addEventListener("change", function () {
-      if (this.files[0]) { pickedDatamart = this.files[0]; renderLoad(); }
-    });
-    $("btn-load").addEventListener("click", doLoad);
-    updateMetro();
-  }
+// ---------- render: run ----------
+function render() {
+  const m = state.manifest;
+  $('#metro').hidden = false;
+  $('#pg-pill').hidden = false;
+  $('#home-btn').hidden = false;
+  $('#jump-latest').hidden = !state.viewStage;
+  $('#pg-count').textContent = `${completedCount()} / 14`;
+  $('#pg-bar').style.width = `${(completedCount() / 14) * 100}%`;
+  renderRail();
+  renderPanel();
+}
 
-  async function doLoad() {
-    if (!pickedDatamart) { toast("warn", "upload", "Pick a <b>DataMart</b> file"); return; }
-    $("load-note").textContent = "Reading DataMart…"; busy(true); await yieldUI();
-    try {
-      engine = new UBA.Engine({ stamp: stamp() });
-      var res = engine.start(await readWb(pickedDatamart));
-      results[0] = { index: 0, label: "Load Inputs", rowsBefore: 0, rowsAfter: res.rowsAfter,
-        columnsDropped: [], columnsAdded: [], deletedCount: 0, logs: res.logs };
-      previews[0] = engine.previewRows(50);
-      latest = 0; toast("good", "database", "Loaded <b>" + res.rowsAfter.toLocaleString() + "</b> DataMart rows");
-      showStage(0);
-    } catch (e) { toast("warn", "trash", esc(e.message)); }
-    finally { busy(false); if ($("load-note")) $("load-note").textContent = ""; }
-  }
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 
-  // ---- per-step input collector ----------------------------------------
-  function neededInputs(index) {
-    return (STEP_INPUTS[index] || []).filter(function (k) { return !provided[k]; });
-  }
-  // A step is blocked until its collector has been completed once.
-  function stageBlocked(index) {
-    return !!STEP_INPUTS[index] && !inputsSatisfied[index];
-  }
-
-  function renderCollector(index, keys) {
-    viewIdx = index;
-    var optional = (index === 3); // zones: provide what you have; others pass through
-    var drops = keys.map(function (k) {
-      var got = provided[k] || picks[k];
-      var fname = provided[k] ? "provided" : (picks[k] ? picks[k].name : metaHint(k));
-      return '<label class="drop' + (got ? " filled" : "") + '" data-k="' + k + '">' +
-        '<span class="k">' + icon(got ? "check" : "upload") + esc(metaLabel(k)) + "</span>" +
-        '<span class="f">' + esc(fname) + "</span>" +
-        (provided[k] ? "" : '<input type="file" accept=".xlsx,.csv" data-k="' + k + '">') + "</label>";
-    }).join("");
-    var ready = optional || keys.every(function (k) { return provided[k] || picks[k]; });
-    $("panel").innerHTML = '<div class="view load collector">' +
-      "<h2>" + esc(STAGE_LABELS[index]) + " needs files</h2>" +
-      '<p class="lead">' + (optional
-        ? "One file per zone (" + ZONES.join(", ") + "). Provide the zones you have — " +
-          "users in a zone with no file pass through unvalidated."
-        : "Provide the reference file(s) for this step.") + "</p>" +
-      '<div class="drops">' + drops + "</div>" +
-      '<div class="load-foot"><button class="btn primary wide" id="btn-provide"' + (ready ? "" : " disabled") + ">" +
-      icon("play") + "Provide &amp; run step</button>" +
-      '<span class="tag mono" id="prov-note"></span></div></div>';
-
-    Array.prototype.forEach.call($("panel").querySelectorAll('input[type=file]'), function (inp) {
-      inp.addEventListener("change", function () {
-        var k = inp.getAttribute("data-k");
-        if (inp.files[0]) { picks[k] = inp.files[0]; renderCollector(index, keys); }
+function renderRail() {
+  const m = state.manifest;
+  const ol = $('#stations');
+  ol.innerHTML = '';
+  m.stage_meta.forEach(sm => {
+    const entry = stageEntry(sm.n);
+    const li = el('li', 'station');
+    const isErr = m.error && m.error.stage === sm.n;
+    if (entry) {
+      li.classList.add('done');
+      if (entry.removed > 0) li.classList.add('removed');
+    }
+    if (isErr) li.classList.add('error');
+    if (!entry && sm.n === frontier() && m.status !== 'complete') li.classList.add('active');
+    if (sm.n === viewedStage()) li.classList.add('viewing');
+    const dot = el('span', 'dot');
+    dot.innerHTML = entry ? CHECK_SVG : `<span class="idx">${sm.n}</span>`;
+    li.appendChild(dot);
+    if (entry && entry.removed > 0) li.appendChild(el('span', 'rm-badge', `−${entry.removed}`));
+    if (entry && entry.added > 0) li.appendChild(el('span', 'add-badge', `+${entry.added}`));
+    const meta = el('span', 'meta',
+      `<span class="name">${esc(sm.title)}</span>
+       <span class="tag">${entry ? `${entry.rows.toLocaleString()} rows` : (sm.missing.length ? 'needs ' + sm.missing.map(s => SLOT_LABELS[s] || s).join(', ') : '')}</span>`);
+    li.appendChild(meta);
+    if (entry || sm.n === frontier()) {
+      li.classList.add('clickable');
+      li.addEventListener('click', () => {
+        state.viewStage = (sm.n === frontier() && !entry) ? null : sm.n;
+        state.previewKind = 'kept'; state.page = 1; state.q = '';
+        render();
       });
-    });
-    $("btn-provide").addEventListener("click", function () { doProvide(index, keys); });
-    updateMetro();
-  }
-
-  async function doProvide(index, keys) {
-    $("prov-note").textContent = "Reading…"; busy(true); await yieldUI();
-    try {
-      for (var i = 0; i < keys.length; i++) {
-        var k = keys[i];
-        if (provided[k] || !picks[k]) continue;
-        engine.provideInput(k, await readWb(picks[k]));
-        provided[k] = true; picks[k] = null;
-      }
-    } catch (e) { toast("warn", "trash", esc(e.message)); busy(false); return; }
-    busy(false);
-    inputsSatisfied[index] = true;
-    await runStage(index);
-  }
-
-  // ---- stage / checkpoint view -----------------------------------------
-  function showStage(index) {
-    viewIdx = index;
-    var res = results[index], prev = previews[index] || { columns: [], rows: [] };
-    var frontier = (index === latest);
-    var atEnd = (latest === 11);
-
-    var metrics = '<div class="metric rows"><div class="lab">Rows out</div>' +
-      '<div class="val" id="m-rows">' + res.rowsAfter.toLocaleString() + "</div></div>";
-    if (res.deletedCount) metrics += '<div class="metric removed"><div class="lab">Removed</div>' +
-      '<div class="val">−' + res.deletedCount.toLocaleString() + "</div></div>";
-    if (res.columnsAdded && res.columnsAdded.length) metrics += '<div class="metric added"><div class="lab">Cols +</div>' +
-      '<div class="val">+' + res.columnsAdded.length + "</div></div>";
-
-    var chips = ((res.columnsDropped || []).map(function (c) { return '<span class="chip drop">− ' + esc(c) + "</span>"; })
-      .concat((res.columnsAdded || []).map(function (c) { return '<span class="chip add">+ ' + esc(c) + "</span>"; }))).join("");
-
-    var logs = res.logs.map(function (l, i) {
-      var cls = /removed|dropped|MISSING/i.test(l) ? "warn" : /\+|added|matched|Loaded/i.test(l) ? "good" : "";
-      return '<div class="logline ' + cls + '" style="animation-delay:' + (i * 55) + 'ms">' +
-        '<span class="mk"></span>' + esc(l) + "</div>";
-    }).join("");
-
-    var head = '<div class="st-head"><div><div class="st-title"><small>Stage ' +
-      String(index).padStart(2, "0") + (frontier ? "" : " · checkpoint") + "</small>" + esc(res.label) +
-      "</div></div>" + '<div class="st-metrics">' + metrics + "</div></div>";
-
-    var table = prev.rows.length
-      ? "<table><thead><tr>" + prev.columns.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("") +
-        "</tr></thead><tbody>" + prev.rows.map(function (r) {
-          return "<tr>" + prev.columns.map(function (c) { return "<td>" + esc(r[c] == null ? "" : r[c]) + "</td>"; }).join("") + "</tr>";
-        }).join("") + "</tbody></table>"
-      : '<div class="empty">No rows at this checkpoint.</div>';
-
-    // actions
-    var acts = '<button class="btn" id="a-cur">' + icon("download") + "Current file</button>" +
-      '<button class="btn" id="a-del"' + (res.deletedCount ? "" : " disabled") + ">" + icon("trash") + "Deleted rows</button>";
-    if (frontier && !atEnd) {
-      acts += '<label class="btn" for="a-up">' + icon("upload") + "Upload replacement</label>" +
-        '<input type="file" id="a-up" accept=".xlsx,.csv" hidden>' +
-        '<button class="btn primary" id="a-cont">' + icon("play") + "Continue</button>" +
-        '<button class="btn" id="a-all">' + icon("forward") + "Run all</button>";
-    } else if (!frontier) {
-      acts += '<span class="tag mono" style="align-self:center;margin-left:auto">Reviewing checkpoint</span>';
     }
-    if (atEnd) acts += '<button class="btn primary" id="a-logs">' + icon("archive") + "Download logs.zip</button>";
+    ol.appendChild(li);
+  });
+}
 
-    $("panel").innerHTML = '<div class="view">' + head +
-      (chips ? '<div class="chips">' + chips + "</div>" : "") +
-      '<div class="logs">' + logs + "</div>" +
-      '<div class="preview-head"><span class="lab">Preview · first 50 rows</span>' +
-      '<span class="lab mono">' + prev.rows.length + " shown · " + res.rowsAfter.toLocaleString() + " total</span></div>" +
-      '<div class="preview">' + table + "</div>" +
-      '<div class="actions">' + acts + "</div></div>";
+function renderPanel() {
+  const m = state.manifest;
+  const n = viewedStage();
+  const sm = m.stage_meta.find(s => s.n === n);
+  const entry = stageEntry(n);
+  const panel = $('#panel');
+  panel.innerHTML = '';
+  const v = el('div', 'view');
 
-    // count-up the rows-out metric from rowsBefore
-    countUp($("m-rows"), res.rowsBefore || res.rowsAfter, res.rowsAfter);
-
-    // wire actions
-    $("a-cur").onclick = function () {
-      var b = engine.stageAfterBytes(index) || engine.currentXlsxBytes();
-      download(b, "stage_" + String(index).padStart(2, "0") + "_current.xlsx", XLSX_MIME);
-    };
-    $("a-del").onclick = function () {
-      var b = engine.deletedXlsxBytes(index);
-      if (!b) return; download(b, "stage_" + String(index).padStart(2, "0") + "_deleted.xlsx", XLSX_MIME);
-    };
-    if ($("a-cont")) $("a-cont").onclick = function () { runStage(latest + 1); };
-    if ($("a-all")) $("a-all").onclick = runAll;
-    if ($("a-up")) $("a-up").onchange = function (ev) { onOverride(ev); };
-    if ($("a-logs")) $("a-logs").onclick = function () { download(engine.logsZipBytes(), "logs.zip", "application/zip"); };
-
-    updateMetro();
+  if (m.error) {
+    v.appendChild(el('div', 'error-banner',
+      `<b>Stage ${m.error.stage} failed:</b> ${esc(m.error.message)} — fix the input and retry.`));
   }
 
-  async function runStage(index, overrideTable) {
-    if (!overrideTable && stageBlocked(index)) {
-      renderCollector(index, neededInputs(index)); return;
-    }
-    $("sta-" + index).classList.add("active"); busy(true); await yieldUI();
-    try {
-      var res = engine.runStage(index, overrideTable);
-      results[index] = res; previews[index] = engine.previewRows(50); latest = index;
-      var kind = res.deletedCount ? "warn" : "good";
-      var msg = res.deletedCount
-        ? "<b>−" + res.deletedCount + "</b> removed · " + esc(res.label)
-        : (res.columnsAdded && res.columnsAdded.length ? "<b>+" + res.columnsAdded.length + "</b> cols · " : "") + esc(res.label);
-      toast(kind, res.deletedCount ? "trash" : "check", msg);
-      showStage(index);
-    } catch (e) { toast("warn", "trash", esc(e.message)); showStage(latest); throw e; }
-    finally { busy(false); }
+  // head
+  const head = el('div', 'st-head');
+  const title = el('div', 'st-title',
+    `<small>Stage ${n} of 14${entry ? '' : (n === frontier() ? ' · up next' : '')}</small>${esc(sm.title)}`);
+  head.appendChild(title);
+  if (entry) {
+    const metrics = el('div', 'st-metrics');
+    metrics.appendChild(el('div', 'metric rows',
+      `<div class="lab">Rows</div><div class="val mono">${entry.rows.toLocaleString()}</div>`));
+    metrics.appendChild(el('div', 'metric removed',
+      `<div class="lab">Removed</div><div class="val mono">${entry.removed.toLocaleString()}</div>`));
+    metrics.appendChild(el('div', 'metric added',
+      `<div class="lab">Added</div><div class="val mono">${entry.added.toLocaleString()}</div>`));
+    head.appendChild(metrics);
   }
+  v.appendChild(head);
+  v.appendChild(el('div', 'lead', esc(DESCRIPTIONS[n] || '')));
 
-  async function runAll() {
-    try {
-      while (latest < 11) {
-        var next = latest + 1;
-        if (stageBlocked(next)) {
-          renderCollector(next, neededInputs(next));
-          toast("info", "upload", "Provide files for <b>" + esc(STAGE_LABELS[next]) + "</b>");
-          return;
-        }
-        await runStage(next);
-      }
-      toast("good", "check", "Pipeline complete");
-    } catch (e) { /* surfaced */ }
-  }
-
-  async function onOverride(ev) {
-    var f = ev.target.files[0]; if (!f) return;
-    var idx = latest + 1;
-    if (idx > 11) { toast("warn", "upload", "Nothing left to override"); return; }
-    toast("info", "upload", "Override → re-running <b>" + esc(STAGE_LABELS[idx]) + "</b>");
-    try { await runStage(idx, await readTable(f)); } catch (e) { /* surfaced */ }
-    ev.target.value = "";
-  }
-
-  // ---- init -------------------------------------------------------------
-  function init() {
-    buildStations();
-    $("jump-latest").addEventListener("click", function () {
-      if (latest < 0) renderLoad(); else showStage(latest);
+  // input dropzones
+  const isFrontierView = !state.viewStage || state.viewStage === frontier();
+  const slots = n === 7 || n === 8 ? ZONES.map(z => `zone_${z}`) : sm.needs;
+  if (isFrontierView && !entry && slots.length) {
+    const drops = el('div', 'drops');
+    slots.forEach(slot => {
+      const filled = !!m.inputs[slot];
+      const d = el('label', `drop${filled ? ' filled' : ''}`,
+        `<span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+         ${esc(SLOT_LABELS[slot] || slot)}${n === 7 || n === 8 ? ' <span style="color:var(--faint)">(optional)</span>' : ''}</span>
+         <span class="f">${filled ? '✓ ' + esc(m.inputs[slot].split('_').slice(2).join('_') || m.inputs[slot]) : 'click or drop .xlsx / .csv'}</span>`);
+      const inp = el('input');
+      inp.type = 'file'; inp.accept = '.xlsx,.csv';
+      inp.addEventListener('change', () => {
+        if (!inp.files.length) return;
+        guard(() => api.uploadInput(state.runId, slot, inp.files[0]),
+          `${SLOT_LABELS[slot] || slot} uploaded`);
+      });
+      d.appendChild(inp);
+      drops.appendChild(d);
     });
-    window.addEventListener("resize", updateMetro);
-    renderLoad();
+    drops.style.flex = '0 0 auto';
+    v.appendChild(drops);
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
+
+  // stats extras
+  if (entry) {
+    const st = entry.stats || {};
+    const chips = el('div', 'chips');
+    (st.dropped_columns || []).slice(0, 30).forEach(c => chips.appendChild(el('span', 'chip drop', `− ${esc(c)}`)));
+    (st.missing_columns || []).forEach(c => chips.appendChild(el('span', 'chip', `blank ${esc(c)}`)));
+    (st.unvalidated_zones || []).forEach(z => chips.appendChild(el('span', 'chip', `${esc(z)}: no file`)));
+    if (st.checklist) st.checklist.forEach(c =>
+      chips.appendChild(el('span', `chip ${c.status === 'Completed' ? 'add' : 'drop'}`,
+        `${c.status === 'Completed' ? '✓' : '!'} ${esc(c.item)}`)));
+    if (chips.children.length) v.appendChild(chips);
+    const logs = el('div', 'logs');
+    (entry.log_lines || []).forEach(l => logs.appendChild(el('div', 'logline', `<span class="mk"></span>${esc(l)}`)));
+    if (logs.children.length) v.appendChild(logs);
+  }
+
+  // preview
+  if (entry) {
+    const ph = el('div', 'preview-head');
+    const tabs = el('div', 'tabbar');
+    [['kept', 'Kept', entry.rows], ['removed', 'Removed', entry.removed], ['added', 'Added', entry.added]]
+      .forEach(([kind, lab, count]) => {
+        const b = el('button', `tab${state.previewKind === kind ? ' active' : ''}`, `${lab} (${count.toLocaleString()})`);
+        b.disabled = count === 0 && kind !== 'kept';
+        b.addEventListener('click', () => { state.previewKind = kind; state.page = 1; renderPanel(); });
+        tabs.appendChild(b);
+      });
+    ph.appendChild(tabs);
+    const right = el('div', 'pager');
+    const search = el('input', 'search');
+    search.placeholder = 'search…'; search.value = state.q;
+    let deb;
+    search.addEventListener('input', () => {
+      clearTimeout(deb);
+      deb = setTimeout(() => { state.q = search.value; state.page = 1; loadPreview(n); }, 300);
+    });
+    right.appendChild(search);
+    right.appendChild(el('span', null, `<span id="pager-lab"></span>`));
+    const prev = el('button', null, '‹'); const next = el('button', null, '›');
+    prev.id = 'pg-prev'; next.id = 'pg-next';
+    prev.addEventListener('click', () => { state.page--; loadPreview(n); });
+    next.addEventListener('click', () => { state.page++; loadPreview(n); });
+    right.appendChild(prev); right.appendChild(next);
+    ph.appendChild(right);
+    v.appendChild(ph);
+    const pv = el('div', 'preview');
+    pv.id = 'preview';
+    pv.innerHTML = '<div class="empty">Loading…</div>';
+    v.appendChild(pv);
+  }
+
+  // actions
+  const actions = el('div', 'actions');
+  const mkBtn = (label, fn, opts) => {
+    const b = el('button', `btn${opts && opts.primary ? ' primary wide' : ''}`, label);
+    if (opts && opts.disabled) { b.disabled = true; b.dataset.forceDisabled = '1'; }
+    if (fn) b.addEventListener('click', fn);
+    return b;
+  };
+  if (entry) {
+    const fmtSel = el('select', 'fmt-sel', '<option value="xlsx">xlsx</option><option value="csv">csv</option>');
+    fmtSel.value = state.fmt;
+    fmtSel.addEventListener('change', () => { state.fmt = fmtSel.value; });
+    actions.appendChild(fmtSel);
+    actions.appendChild(mkBtn('Download current file', () =>
+      window.open(api.downloadUrl(state.runId, n, 'kept', state.fmt))));
+    actions.appendChild(mkBtn('Download removed', () =>
+      window.open(api.downloadUrl(state.runId, n, 'removed', state.fmt)), { disabled: entry.removed === 0 }));
+    actions.appendChild(mkBtn('Download added', () =>
+      window.open(api.downloadUrl(state.runId, n, 'added', state.fmt)), { disabled: entry.added === 0 }));
+    const rep = mkBtn('Upload replacement…', null);
+    const repInp = el('input');
+    repInp.type = 'file'; repInp.accept = '.xlsx,.csv'; repInp.style.display = 'none';
+    repInp.addEventListener('change', () => {
+      if (!repInp.files.length) return;
+      if (!confirm(`Replace the working file at stage ${n}? Stages after ${n} will be superseded (archived) and must re-run.`)) return;
+      guard(async () => {
+        await api.replace(state.runId, n, repInp.files[0]);
+        state.viewStage = null;
+      }, 'Working file replaced');
+    });
+    rep.addEventListener('click', () => repInp.click());
+    actions.appendChild(rep);
+    actions.appendChild(repInp);
+  }
+  if (stageEntry(14)) {
+    actions.appendChild(mkBtn('Download logs.zip', () => window.open(api.logsUrl(state.runId))));
+  }
+  if (m.status !== 'complete') {
+    actions.appendChild(mkBtn('Run all', () => guard(async () => {
+      const r = await api.runAll(state.runId);
+      state.viewStage = null;
+      if (r.blocked_on) toast(`Waiting for: ${r.blocked_on.map(s => SLOT_LABELS[s] || s).join(', ')}`, 'warn');
+      else toast('Pipeline complete', 'good');
+    })));
+    const missing = m.stage_meta.find(s => s.n === frontier());
+    actions.appendChild(mkBtn('Continue ▸', () => guard(async () => {
+      await api.advance(state.runId);
+      state.viewStage = null;
+    }, null), { primary: true, disabled: missing && missing.missing.length > 0 }));
+  }
+  v.appendChild(actions);
+  panel.appendChild(v);
+
+  if (entry) loadPreview(n);
+}
+
+async function loadPreview(n) {
+  const pv = $('#preview');
+  if (!pv) return;
+  try {
+    const d = await api.preview(state.runId, n, state.previewKind, state.page, state.q);
+    state.page = d.page;
+    const lab = $('#pager-lab');
+    if (lab) lab.textContent = `${d.total.toLocaleString()} rows · page ${d.page}/${d.pages}`;
+    const prev = $('#pg-prev'), next = $('#pg-next');
+    if (prev) prev.disabled = d.page <= 1;
+    if (next) next.disabled = d.page >= d.pages;
+    if (!d.rows.length) { pv.innerHTML = '<div class="empty">No rows.</div>'; return; }
+    const thead = `<thead><tr>${d.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
+    const tbody = `<tbody>${d.rows.map(r =>
+      `<tr>${r.map(c => `<td title="${esc(c)}">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+    pv.innerHTML = `<table>${thead}${tbody}</table>`;
+  } catch (e) {
+    pv.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+// ---------- top bar ----------
+$('#jump-latest').addEventListener('click', () => {
+  state.viewStage = null;
+  render();
+});
+$('#home-btn').addEventListener('click', () => {
+  state.runId = null; state.manifest = null; state.viewStage = null;
+  renderHome();
+});
+
+// ---------- boot ----------
+renderHome();

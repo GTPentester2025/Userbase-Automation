@@ -244,3 +244,34 @@ button{font-family:inherit}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
 }
+
+/* ---------- additions: tabs, pager, banners, home ---------- */
+.tabbar{display:flex;gap:6px}
+.tab{font-size:.68rem;padding:.3rem .7rem;border-radius:999px;border:1px solid var(--line);
+  background:transparent;color:var(--muted);cursor:pointer;transition:all var(--t)}
+.tab:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.tab.active{border-color:var(--gold);color:var(--gold);background:var(--gold-soft)}
+.tab:disabled{opacity:.3;cursor:not-allowed}
+.pager{display:flex;align-items:center;gap:8px;font-size:.7rem;color:var(--muted)}
+.pager button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;
+  padding:.15rem .5rem;cursor:pointer}
+.pager button:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.pager button:disabled{opacity:.3;cursor:not-allowed}
+.search{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;color:var(--cream);
+  font-size:.72rem;padding:.3rem .6rem;width:170px}
+.search:focus{outline:none;border-color:var(--gold)}
+.error-banner{display:flex;align-items:center;gap:10px;padding:.7rem 1rem;border-radius:12px;
+  background:rgba(224,87,75,.12);border:1px solid rgba(224,87,75,.5);color:#f0a89f;font-size:.8rem;margin-bottom:12px}
+.station.error .dot{background:rgba(224,87,75,.16);border-color:var(--red);color:var(--red)}
+.station .add-badge{position:absolute;left:27px;bottom:0;z-index:4;font-size:.54rem;font-weight:700;
+  padding:.03rem .28rem;border-radius:999px;background:var(--grn);color:#0a2014;
+  box-shadow:0 2px 6px rgba(0,0,0,.4)}
+@media (max-width:860px){.station .add-badge{left:42px}}
+.runs-list{display:flex;flex-direction:column;gap:8px;margin-top:14px;overflow:auto}
+.run-row{display:flex;align-items:center;gap:14px;padding:.7rem 1rem;border-radius:12px;
+  border:1px solid var(--line);background:rgba(255,255,255,.02);cursor:pointer;transition:all var(--t)}
+.run-row:hover{border-color:var(--gold);background:var(--gold-soft)}
+.run-row .rid{font-weight:600;font-size:.82rem}
+.run-row .rmeta{margin-left:auto;font-size:.68rem;color:var(--muted)}
+.fmt-sel{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;color:var(--muted);
+  font-size:.72rem;padding:.3rem .4rem}
