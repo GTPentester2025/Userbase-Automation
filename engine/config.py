@@ -11,6 +11,10 @@ BSC_COLUMN = "BSC (Yes/No)"
 
 ZONES = ["MAZ", "SAZ", "NAZ", "APC", "AFR", "EUR", "GHQ", "Growth"]
 
+# Single-zone run: the Datamart column whose value decides which zone a person
+# belongs to. Rows whose value != the chosen zone are dropped up front (Stage 1).
+ZONE_FILTER_COLUMN = "Macro Entity Level 2 (Zone)"
+
 # SOP STEP 1 — the 21 Datamart columns to retain.
 REQUIRED_COLUMNS = [
     "Zone",

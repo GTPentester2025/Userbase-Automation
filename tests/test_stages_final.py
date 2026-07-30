@@ -17,7 +17,9 @@ def test_export_writes_files_and_checklist(tmp_path):
     assert (tmp_path / "Final Userbase.xlsx").exists()
     assert (tmp_path / "Removed_Users_Report.xlsx").exists()
     assert (tmp_path / "Automation_Report.xlsx").exists()
+    # Zone validation is Completed once Stage 7 ran; zones without a file (SAZ here)
+    # are informational, not a checklist failure.
     zone_item = [c for c in r.stats["checklist"] if "Zone validation" in c["item"]][0]
-    assert zone_item["status"] == "Attention"
+    assert zone_item["status"] == "Completed"
     back = io_utils.read_table(tmp_path / "Removed_Users_Report.xlsx", "Removed Users")
     assert back["Employee Email"].tolist() == ["x@y.z"]

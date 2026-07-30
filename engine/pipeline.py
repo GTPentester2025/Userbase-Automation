@@ -84,7 +84,13 @@ def _zone_frames(store, run_id, additional=False):
 def _execute(store, run_id, stage) -> StageResult:
     n = stage.n
     if n == 1:
-        return column_filter.run(read_table(store.input_path(run_id, "datamart"), 0))
+        m = store.manifest(run_id)
+        zone_filter = m.get("zone_filter")
+        if m.get("mode") == "single_zone" and not zone_filter:
+            raise PipelineError("Single-zone run: choose a zone before running Stage 1")
+        return column_filter.run(
+            read_table(store.input_path(run_id, "datamart"), 0), zone_filter=zone_filter
+        )
     df = store.load_kept(run_id, n - 1)
     if n == 2:
         if config.ZONE_VALIDATION_COLUMN not in df.columns:
@@ -168,6 +174,30 @@ def run_stage(store, run_id, n) -> dict:
     store.save_stage(run_id, n, stage.key, result)
     _log(store, run_id, n, result.log_lines or [f"{stage.title} done"])
     m = store.manifest(run_id)
+    m["status"] = "complete" if n == 14 else "idle"
+    store.save_manifest(run_id, m)
+    return m["stages"][str(n)]
+
+
+def skip_stage(store, run_id, n) -> dict:
+    """Pass through a stage unchanged: keep the current working file, record the
+    stage as skipped, advance the frontier. Stage 1 cannot be skipped (there would
+    be no base snapshot for later stages to build on)."""
+    stage = BY_N.get(n)
+    if not stage:
+        raise PipelineError(f"No such stage: {n}")
+    if n <= 1:
+        raise PipelineError("Stage 1 cannot be skipped")
+    df = store.load_kept(run_id, n - 1)
+    result = StageResult(
+        kept=df,
+        stats={"rows": len(df), "skipped": True},
+        log_lines=[f"Stage {n} ({stage.title}) skipped — working file unchanged"],
+    )
+    store.save_stage(run_id, n, stage.key, result)
+    _log(store, run_id, n, result.log_lines)
+    m = store.manifest(run_id)
+    m["stages"][str(n)]["skipped"] = True
     m["status"] = "complete" if n == 14 else "idle"
     store.save_manifest(run_id, m)
     return m["stages"][str(n)]

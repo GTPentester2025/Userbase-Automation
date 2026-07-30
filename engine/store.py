@@ -17,7 +17,7 @@ class RunStore:
     def _mpath(self, run_id):
         return self.base_dir / run_id / "manifest.json"
 
-    def create_run(self) -> str:
+    def create_run(self, mode: str = "full", zone_filter=None) -> str:
         stamp = datetime.now().strftime("run_%Y-%m-%d_%H%M%S")
         run_id, i = stamp, 1
         while (self.base_dir / run_id).exists():
@@ -29,12 +29,29 @@ class RunStore:
             "created": datetime.now().isoformat(),
             "status": "idle",
             "frontier": 1,
+            "mode": mode,                 # "full" | "single_zone"
+            "zone_filter": zone_filter,   # {"column": ..., "value": ...} | None
             "inputs": {s: None for s in config.INPUT_SLOTS},
             "stages": {},
             "error": None,
         }
         self.save_manifest(run_id, m)
         return run_id
+
+    def clear_input(self, run_id, slot):
+        """Un-set an input slot so a wrong file can be replaced before it is used."""
+        m = self.manifest(run_id)
+        if slot in m["inputs"]:
+            m["inputs"][slot] = None
+            self.save_manifest(run_id, m)
+        return m
+
+    def set_zone_filter(self, run_id, column, value):
+        m = self.manifest(run_id)
+        m["mode"] = "single_zone"
+        m["zone_filter"] = {"column": column, "value": value}
+        self.save_manifest(run_id, m)
+        return m
 
     def manifest(self, run_id) -> dict:
         return json.loads(self._mpath(run_id).read_text(encoding="utf-8"))

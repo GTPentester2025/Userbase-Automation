@@ -96,15 +96,46 @@ const BASE = new URL('.', location.href).pathname;   // e.g. "/" or "/userbase-a
 const api = {
   runs: () => jfetch(`${BASE}api/runs`),
   run: id => jfetch(`${BASE}api/runs/${id}`),
-  createRun: file => upload(`${BASE}api/runs`, file),
+  createRun: (file, mode) =>
+    upload(`${BASE}api/runs${mode === 'single_zone' ? '?mode=single_zone' : ''}`, file),
   uploadInput: (id, slot, file) => upload(`${BASE}api/runs/${id}/inputs/${slot}`, file),
+  clearInput: (id, slot) => jfetch(`${BASE}api/runs/${id}/inputs/${slot}/clear`, { method: 'POST' }),
   advance: id => jfetch(`${BASE}api/runs/${id}/advance`, { method: 'POST' }),
+  skip: (id, n) => jfetch(`${BASE}api/runs/${id}/stages/${n}/skip`, { method: 'POST' }),
   runAll: id => jfetch(`${BASE}api/runs/${id}/run-all`, { method: 'POST' }),
+  zoneValues: id => jfetch(`${BASE}api/runs/${id}/zone-values`),
+  setZoneFilter: (id, value) =>
+    jfetch(`${BASE}api/runs/${id}/zone-filter?value=${encodeURIComponent(value)}`, { method: 'POST' }),
   preview: (id, n, kind, page, q) =>
     jfetch(`${BASE}api/runs/${id}/stages/${n}/preview?kind=${kind}&page=${page}&q=${encodeURIComponent(q || '')}`),
   replace: (id, n, file) => upload(`${BASE}api/runs/${id}/stages/${n}/replace`, file),
   downloadUrl: (id, n, kind, fmt) => `${BASE}api/runs/${id}/stages/${n}/download?kind=${kind}&fmt=${fmt}`,
   logsUrl: id => `${BASE}api/runs/${id}/logs.zip`,
+};
+
+// Standard Operating Procedure — shown on the start screen (source: Userbase_Creation_SOP.docx).
+const SOP = {
+  purpose: 'Build the final Userbase from the Datamart plus O365, Saviynt, Zone, '
+    + 'Aurora, BSC and CEO files — validated, cleaned, deduplicated and ready for '
+    + 'campaign execution, awareness targeting, reporting and segmentation.',
+  inputs: ['Datamart', 'O365', 'Saviynt', 'Zone files (MAZ, SAZ, NAZ, APC, AFR, EUR, GHQ, Growth)',
+    'Aurora', 'BSC', 'CEO'],
+  steps: [
+    ['Create Base Userbase from Datamart', 'Keep only the 21 SOP columns; drop everything else.'],
+    ['Create New Userbase', 'The filtered Datamart becomes the master working file.'],
+    ['Validate Employee Email', 'Remove rows where the email is blank, contains "noemail", or has no "@".'],
+    ['Identify OT Users', 'Add OT (Yes/No): Yes only for SUPPLY + allowed Job Family + allowed Job Profile.'],
+    ['Add SSOUPN as per AD (O365)', 'Map Employee Email → O365 Mail; write UserPrincipalName.'],
+    ['Add SSOUPN as per Saviynt', 'Map Employee Email → Saviynt User Email; write SSO UPN.'],
+    ['Validate Zone Users', 'Per zone file keep Action = OK (mark "<Zone> Validated"); remove the rest.'],
+    ['Add Additional Users from Zone Files', 'Append users from each zone file\'s additional tab.'],
+    ['Repeat Zone Validation for All Zones', 'Steps 7–8 across every zone before Aurora.'],
+    ['Aurora Validation', 'Flag Aurora (Yes/No) via E-MAIL; append not-found Aurora users.'],
+    ['BSC Validation', 'Flag BSC (Yes/No) via Email - Primary Work; append not-found BSC users.'],
+    ['CEO Exclusion', 'Remove users whose email or either SSOUPN matches the latest CEO Mail ID sheet.'],
+    ['Remove Duplicate Users', 'Deduplicate on Employee Email — first occurrence kept.'],
+    ['Final Validation', 'Run the SOP checklist and export Final Userbase.xlsx + reports.'],
+  ],
 };
 
 // ---------- state ----------
@@ -113,6 +144,7 @@ const state = {
   viewStage: null,          // null = frontier
   previewKind: 'kept', page: 1, q: '',
   fmt: 'xlsx', busy: false,
+  newMode: 'full',          // 'full' | 'single_zone' — selected on the start screen
 };
 
 const ZONES = ['MAZ', 'SAZ', 'NAZ', 'APC', 'AFR', 'EUR', 'GHQ', 'Growth'];
@@ -194,41 +226,80 @@ function completedCount() { return Object.keys(state.manifest.stages).length; }
 // ---------- render: home ----------
 async function renderHome() {
   $('#metro').hidden = true;
+  document.querySelector('.stage').classList.add('home');
   $('#pg-pill').hidden = true;
   $('#jump-latest').hidden = true;
   $('#home-btn').hidden = true;
   const panel = $('#panel');
   panel.innerHTML = '';
-  const v = el('div', 'view load');
-  v.appendChild(el('h2', null, 'Start a run'));
-  v.appendChild(el('div', 'lead',
-    'Upload the Datamart extract to begin a new pipeline run. Every stage stores its kept, removed and added rows — download or replace the working file at any point.'));
+  const v = el('div', 'view load home');
+  const left = el('div', 'home-left');
+  const right = el('div', 'home-right');
+  v.appendChild(left);
+  v.appendChild(right);
+  left.appendChild(el('h2', null, 'Start a run'));
+  left.appendChild(el('div', 'lead',
+    'Upload the Datamart extract to begin. Every stage stores its kept, removed and added '
+    + 'rows — preview, download or replace the working file at any point.'));
+
+  // ── Run mode: full pipeline vs single-zone extract ──
+  const modes = el('div', 'modes');
+  const mkMode = (mode, title, sub) => {
+    const b = el('button', `mode-card${state.newMode === mode ? ' on' : ''}`,
+      `<span class="mc-title">${title}</span><span class="mc-sub">${sub}</span>`);
+    b.addEventListener('click', () => { state.newMode = mode; renderHome(); });
+    return b;
+  };
+  modes.appendChild(mkMode('full', 'Full run', 'All zones · complete 14-stage pipeline'));
+  modes.appendChild(mkMode('single_zone', 'Single-zone run',
+    'Pick one zone up front — everyone else is dropped at the start'));
+  left.appendChild(modes);
+
   const drops = el('div', 'drops');
+  const single = state.newMode === 'single_zone';
   const dz = el('label', 'drop drop-lg',
     `<span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-     Upload Datamart — new run</span><span class="f">.xlsx or .csv · first sheet is used</span>`);
+     Upload Datamart — ${single ? 'single-zone run' : 'new run'}</span><span class="f">.xlsx or .csv · first sheet is used${single ? ' · you\'ll pick the zone next' : ''}</span>`);
   const inp = el('input');
   inp.type = 'file'; inp.accept = '.xlsx,.csv';
   inp.addEventListener('change', () => {
     if (!inp.files.length) return;
+    const mode = state.newMode;
     guard(async () => {
-      const r = await api.createRun(inp.files[0]);
+      const r = await api.createRun(inp.files[0], mode);
       state.runId = r.run_id;
       state.viewStage = null;
-      logEvent('info', `Run created: ${r.run_id}`);
+      logEvent('info', `Run created: ${r.run_id} (${mode})`);
     }, 'Run created — Datamart uploaded');
   });
   dz.appendChild(inp);
   drops.appendChild(dz);
-  v.appendChild(drops);
+  left.appendChild(drops);
+
+  // ── SOP reference (fills the space before upload) ──
+  const sop = el('details', 'sop');
+  sop.open = true;
+  const sum = el('summary', null,
+    '<span class="sop-t">Standard Operating Procedure</span><span class="sop-h">Userbase Creation — 14 steps</span>');
+  sop.appendChild(sum);
+  sop.appendChild(el('div', 'sop-purpose', esc(SOP.purpose)));
+  sop.appendChild(el('div', 'sop-inputs',
+    '<b>Inputs:</b> ' + SOP.inputs.map(esc).join(' · ')));
+  const ol = el('ol', 'sop-steps');
+  SOP.steps.forEach(([t, d], i) => {
+    ol.appendChild(el('li', null,
+      `<span class="sn">${i + 1}</span><span class="sb"><b>${esc(t)}</b><span>${esc(d)}</span></span>`));
+  });
+  sop.appendChild(ol);
+  right.appendChild(sop);
   panel.appendChild(v);
 
   try {
     const runs = await api.runs();
     if (runs.length) {
-      v.appendChild(el('div', 'lead', ''));
-      const head = el('div', null, '<h2 style="font-size:1.05rem">Past runs</h2>');
-      v.appendChild(head);
+      const left = document.querySelector('.home-left');
+      const head = el('div', 'runs-head', '<h2 style="font-size:1.05rem">Past runs</h2>');
+      left.appendChild(head);
       const list = el('div', 'runs-list');
       runs.forEach(m => {
         const done = Object.keys(m.stages).length;
@@ -241,7 +312,7 @@ async function renderHome() {
         });
         list.appendChild(row);
       });
-      v.appendChild(list);
+      left.appendChild(list);
     }
   } catch (e) {
     // server down / wrong build: home stays usable, but make the reason explicit.
@@ -255,6 +326,7 @@ async function renderHome() {
 function render() {
   const m = state.manifest;
   $('#metro').hidden = false;
+  document.querySelector('.stage').classList.remove('home');
   $('#pg-pill').hidden = false;
   $('#home-btn').hidden = false;
   $('#jump-latest').hidden = !state.viewStage;
@@ -277,6 +349,7 @@ function renderRail() {
     if (entry) {
       li.classList.add('done');
       if (entry.removed > 0) li.classList.add('removed');
+      if (entry.skipped) li.classList.add('skipped');
     }
     if (isErr) li.classList.add('error');
     if (!entry && sm.n === frontier() && m.status !== 'complete') li.classList.add('active');
@@ -286,9 +359,11 @@ function renderRail() {
     li.appendChild(dot);
     if (entry && entry.removed > 0) li.appendChild(el('span', 'rm-badge', `−${entry.removed}`));
     if (entry && entry.added > 0) li.appendChild(el('span', 'add-badge', `+${entry.added}`));
+    const tagText = entry
+      ? (entry.skipped ? 'skipped' : `${entry.rows.toLocaleString()} rows`)
+      : (sm.missing.length ? 'needs ' + sm.missing.map(s => SLOT_LABELS[s] || s).join(', ') : '');
     const meta = el('span', 'meta',
-      `<span class="name">${esc(sm.title)}</span>
-       <span class="tag">${entry ? `${entry.rows.toLocaleString()} rows` : (sm.missing.length ? 'needs ' + sm.missing.map(s => SLOT_LABELS[s] || s).join(', ') : '')}</span>`);
+      `<span class="name">${esc(sm.title)}</span><span class="tag">${tagText}</span>`);
     li.appendChild(meta);
     if (entry || sm.n === frontier()) {
       li.classList.add('clickable');
@@ -300,6 +375,37 @@ function renderRail() {
     }
     ol.appendChild(li);
   });
+}
+
+// ---------- single-zone picker ----------
+function renderZonePicker(container, m) {
+  const box = el('div', 'zonepick');
+  container.appendChild(box);
+  if (m.zone_filter) _zoneSelected(box, m); else _zoneList(box);
+}
+function _zoneSelected(box, m) {
+  box.innerHTML = '<div class="zp-h">Zone selected</div>';
+  const cur = el('div', 'zp-current',
+    `<b>${esc(m.zone_filter.value)}</b><span>only this zone is kept — everyone else is dropped at Stage 1</span>`);
+  const ch = el('button', 'ghost-btn', 'Change');
+  ch.addEventListener('click', () => _zoneList(box));
+  cur.appendChild(ch);
+  box.appendChild(cur);
+}
+function _zoneList(box) {
+  box.innerHTML = '<div class="zp-h">Pick a zone — Macro Entity Level 2 (Zone)</div>'
+    + '<div class="zp-list"><span class="zp-load">Reading zones from the Datamart…</span></div>';
+  const list = box.querySelector('.zp-list');
+  api.zoneValues(state.runId).then(res => {
+    list.innerHTML = '';
+    if (!res.values.length) { list.innerHTML = '<span class="zp-load">No zone values found.</span>'; return; }
+    res.values.forEach(zv => {
+      const b = el('button', 'zp-opt', `<b>${esc(zv.value)}</b><span>${zv.count.toLocaleString()} people</span>`);
+      b.addEventListener('click', () =>
+        guard(() => api.setZoneFilter(state.runId, zv.value), `Zone set: ${zv.value}`));
+      list.appendChild(b);
+    });
+  }).catch(e => { list.innerHTML = `<span class="zp-load">${esc(e.message)}</span>`; });
 }
 
 function renderPanel() {
@@ -319,7 +425,7 @@ function renderPanel() {
   // head
   const head = el('div', 'st-head');
   const title = el('div', 'st-title',
-    `<small>Stage ${n} of 14${entry ? '' : (n === frontier() ? ' · up next' : '')}</small>${esc(sm.title)}`);
+    `<small>Stage ${n} of 14${entry && entry.skipped ? ' · skipped' : (entry ? '' : (n === frontier() ? ' · up next' : ''))}</small>${esc(sm.title)}`);
   head.appendChild(title);
   if (entry) {
     const metrics = el('div', 'st-metrics');
@@ -336,6 +442,11 @@ function renderPanel() {
 
   // input dropzones
   const isFrontierView = !state.viewStage || state.viewStage === frontier();
+
+  // single-zone: pick the zone before Stage 1 runs
+  if (n === 1 && !entry && isFrontierView && m.mode === 'single_zone') {
+    renderZonePicker(v, m);
+  }
   const slots = n === 7 || n === 8 ? ZONES.map(z => `zone_${z}`) : sm.needs;
   if (isFrontierView && !entry && slots.length) {
     const drops = el('div', 'drops');
@@ -353,6 +464,15 @@ function renderPanel() {
           `${SLOT_LABELS[slot] || slot} uploaded`);
       });
       d.appendChild(inp);
+      if (filled) {
+        const rm = el('button', 'drop-rm', '✕');
+        rm.title = 'Remove this file';
+        rm.addEventListener('click', e => {
+          e.preventDefault(); e.stopPropagation();
+          guard(() => api.clearInput(state.runId, slot), `${SLOT_LABELS[slot] || slot} removed`);
+        });
+        d.appendChild(rm);
+      }
       drops.appendChild(d);
     });
     drops.style.flex = '0 0 auto';
@@ -419,16 +539,20 @@ function renderPanel() {
     return b;
   };
   if (entry) {
+    // Per-stage files — always available the moment the stage completes.
+    const dl = el('div', 'dl-group');
+    dl.appendChild(el('span', 'dl-lab', 'This stage'));
     const fmtSel = el('select', 'fmt-sel', '<option value="xlsx">xlsx</option><option value="csv">csv</option>');
     fmtSel.value = state.fmt;
     fmtSel.addEventListener('change', () => { state.fmt = fmtSel.value; });
-    actions.appendChild(fmtSel);
-    actions.appendChild(mkBtn('Download current file', () =>
+    dl.appendChild(fmtSel);
+    dl.appendChild(mkBtn(`Kept (${entry.rows.toLocaleString()})`, () =>
       window.open(api.downloadUrl(state.runId, n, 'kept', state.fmt))));
-    actions.appendChild(mkBtn('Download removed', () =>
+    dl.appendChild(mkBtn(`Removed (${entry.removed.toLocaleString()})`, () =>
       window.open(api.downloadUrl(state.runId, n, 'removed', state.fmt)), { disabled: entry.removed === 0 }));
-    actions.appendChild(mkBtn('Download added', () =>
+    dl.appendChild(mkBtn(`Added (${entry.added.toLocaleString()})`, () =>
       window.open(api.downloadUrl(state.runId, n, 'added', state.fmt)), { disabled: entry.added === 0 }));
+    actions.appendChild(dl);
     const rep = mkBtn('Upload replacement…', null);
     const repInp = el('input');
     repInp.type = 'file'; repInp.accept = '.xlsx,.csv'; repInp.style.display = 'none';
@@ -448,6 +572,8 @@ function renderPanel() {
     actions.appendChild(mkBtn('Download logs.zip', () => window.open(api.logsUrl(state.runId))));
   }
   if (m.status !== 'complete') {
+    const atFrontier = !entry && n === frontier();
+    const needZonePick = m.mode === 'single_zone' && !m.zone_filter && frontier() === 1;
     actions.appendChild(mkBtn('Run all', () => guard(async () => {
       const r = await api.runAll(state.runId);
       state.viewStage = null;
@@ -459,12 +585,19 @@ function renderPanel() {
         toast('Pipeline complete', 'good');
         logEvent('info', 'Run-all complete — all 14 stages done');
       }
-    })));
+    }), { disabled: needZonePick }));
+    // Skip — pass the current working file through unchanged (any stage after 1).
+    if (atFrontier && n > 1) {
+      actions.appendChild(mkBtn('Skip step', () => guard(async () => {
+        await api.skip(state.runId, n);
+        state.viewStage = null;
+      }, `Stage ${n} skipped`)));
+    }
     const missing = m.stage_meta.find(s => s.n === frontier());
     actions.appendChild(mkBtn('Continue ▸', () => guard(async () => {
       await api.advance(state.runId);
       state.viewStage = null;
-    }, null), { primary: true, disabled: missing && missing.missing.length > 0 }));
+    }, null), { primary: true, disabled: (missing && missing.missing.length > 0) || needZonePick }));
   }
   v.appendChild(actions);
   panel.appendChild(v);

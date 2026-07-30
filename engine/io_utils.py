@@ -25,6 +25,13 @@ def norm_series(s: pd.Series) -> pd.Series:
     return s.fillna("").astype(str).str.strip().str.lower()
 
 
+def is_valid_email(v) -> bool:
+    """SOP Step 3 rule: non-blank, contains '@', and not a 'noemail' address.
+    Single source of truth shared by email validation and the append stages."""
+    e = norm_email(v)
+    return bool(e) and "@" in e and "noemail" not in e
+
+
 def read_table(path, sheet_name=0) -> pd.DataFrame:
     path = Path(path)
     if path.suffix.lower() == ".csv":

@@ -1,7 +1,7 @@
 import pandas as pd
 
 from engine import config
-from engine.io_utils import norm_email, norm_series
+from engine.io_utils import is_valid_email, norm_email, norm_series
 from engine.types import StageResult
 
 
@@ -15,7 +15,8 @@ def run(df, additional_frames: dict) -> StageResult:
         rows = []
         for _, row in af.iterrows():
             em = norm_email(row[config.EMAIL_COLUMN])
-            if not em or em in have:
+            # Only append valid, not-already-present emails (SOP Step 3 rule).
+            if em in have or not is_valid_email(row[config.EMAIL_COLUMN]):
                 continue
             have.add(em)
             new = {c: "" for c in kept.columns}
@@ -23,6 +24,9 @@ def run(df, additional_frames: dict) -> StageResult:
                 if c in af.columns:
                     new[c] = str(row[c]) if pd.notna(row[c]) else ""
             new[config.ZONE_VALIDATION_COLUMN] = f"{z} Additional"
+            # Appended after the OT stage — default OT so the checklist stays clean.
+            if config.OT_COLUMN in kept.columns and not new.get(config.OT_COLUMN):
+                new[config.OT_COLUMN] = "No"
             rows.append(new)
         per_zone[z] = len(rows)
         logs.append(f"{z}: appended {len(rows)} additional users")

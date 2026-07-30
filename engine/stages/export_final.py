@@ -32,7 +32,9 @@ def run(df, all_removed: pd.DataFrame, stage_stats: dict, out_dir) -> StageResul
     status[2] = bool(df[config.OT_COLUMN].isin(["Yes", "No"]).all()) if config.OT_COLUMN in df else False
     status[3] = config.O365_COLUMN in df.columns
     status[4] = config.SAVIYNT_COLUMN in df.columns
-    status[5] = len(unvalidated) == 0
+    # Zone validation is "completed" once Stage 7 ran — zones without a file are
+    # legitimately skipped by design, not a failure. Report them as info instead.
+    status[5] = 7 in stage_stats
     status[6] = 8 in stage_stats
     status[7] = 10 in stage_stats or config.AURORA_COLUMN in df.columns
     status[8] = 11 in stage_stats or config.BSC_COLUMN in df.columns

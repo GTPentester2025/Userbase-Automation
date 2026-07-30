@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from engine import pipeline
+from engine import config, pipeline
 from engine.io_utils import read_table
 from engine.store import RunStore
 from engine.types import StageResult
@@ -28,10 +28,31 @@ def create_app(runs_dir=None) -> FastAPI:
         ]
 
     @app.post("/api/runs")
-    def create_run(file: UploadFile):
-        rid = store.create_run()
+    def create_run(file: UploadFile, mode: str = "full"):
+        rid = store.create_run(mode=mode if mode in ("full", "single_zone") else "full")
         store.save_upload_stream(rid, "datamart", file.filename, file.file)
         return {"run_id": rid, "manifest": store.manifest(rid)}
+
+    @app.get("/api/runs/{rid}/zone-values")
+    def zone_values(rid: str):
+        """Distinct values (+ counts) of the single-zone filter column in the
+        uploaded Datamart, for the zone picker."""
+        path = store.input_path(rid, "datamart")
+        if not path:
+            raise HTTPException(400, "No Datamart uploaded yet")
+        df = read_table(path, 0)
+        col = config.ZONE_FILTER_COLUMN
+        if col not in df.columns:
+            raise HTTPException(400, f"Datamart has no '{col}' column")
+        counts = df[col].fillna("").astype(str).str.strip().value_counts()
+        return {"column": col,
+                "values": [{"value": v, "count": int(c)} for v, c in counts.items() if v]}
+
+    @app.post("/api/runs/{rid}/zone-filter")
+    def set_zone_filter(rid: str, value: str):
+        if store.manifest(rid)["stages"]:
+            raise HTTPException(409, "Cannot change the zone after Stage 1 has run")
+        return store.set_zone_filter(rid, config.ZONE_FILTER_COLUMN, value)
 
     @app.get("/api/runs")
     def list_runs():
@@ -54,10 +75,21 @@ def create_app(runs_dir=None) -> FastAPI:
             raise HTTPException(400, str(e))
         return store.manifest(rid)
 
+    @app.post("/api/runs/{rid}/inputs/{slot}/clear")
+    def clear_input(rid: str, slot: str):
+        return store.clear_input(rid, slot)
+
     @app.post("/api/runs/{rid}/advance")
     def advance(rid: str):
         try:
             return pipeline.advance(store, rid)
+        except pipeline.PipelineError as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/runs/{rid}/stages/{n}/skip")
+    def skip(rid: str, n: int):
+        try:
+            return pipeline.skip_stage(store, rid, n)
         except pipeline.PipelineError as e:
             raise HTTPException(409, str(e))
 

@@ -1,8 +1,24 @@
 import pandas as pd
 
 from engine import config
-from engine.io_utils import norm_email, norm_series
+from engine.io_utils import is_valid_email, norm_email, norm_series
 from engine.types import StageResult
+
+
+def _new_row(kept, ref, row, alias_map):
+    """Build one appended row: blank template, filled from the ref file, with the
+    OT column defaulted to 'No' so the final checklist stays clean (appends happen
+    after the OT stage, so an unset OT would otherwise read as incomplete)."""
+    new = {c: "" for c in kept.columns}
+    for src, dst in alias_map.items():
+        if src in ref.columns:
+            new[dst] = str(row[src]) if pd.notna(row[src]) else ""
+    for c in kept.columns:
+        if c in ref.columns and c not in alias_map.values():
+            new[c] = str(row[c]) if pd.notna(row[c]) else ""
+    if config.OT_COLUMN in kept.columns and not new.get(config.OT_COLUMN):
+        new[config.OT_COLUMN] = "No"
+    return new
 
 
 def _flag_and_append(df, ref, email_col, flag_col, alias_map, source, label):
@@ -19,16 +35,12 @@ def _flag_and_append(df, ref, email_col, flag_col, alias_map, source, label):
     rows = []
     for _, row in ref.iterrows():
         em = norm_email(row[email_col])
-        if not em or em in have:
+        # Only append users with a valid email (SOP Step 3 rule) and not already
+        # present — keeps "valid emails only / no blanks" true after appends.
+        if em in have or not is_valid_email(row[email_col]):
             continue
         have.add(em)
-        new = {c: "" for c in kept.columns}
-        for src, dst in alias_map.items():
-            if src in ref.columns:
-                new[dst] = str(row[src]) if pd.notna(row[src]) else ""
-        for c in kept.columns:
-            if c in ref.columns and c not in alias_map.values():
-                new[c] = str(row[c]) if pd.notna(row[c]) else ""
+        new = _new_row(kept, ref, row, alias_map)
         new[flag_col] = "Yes"
         rows.append(new)
     added = None
