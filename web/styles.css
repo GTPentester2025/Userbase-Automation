@@ -385,3 +385,71 @@ button{font-family:inherit}
 /* ---------- skipped stage ---------- */
 .station.skipped .dot{opacity:.55}
 .station.skipped .tag{color:var(--faint);font-style:italic}
+
+/* ============================================================
+   Professional polish — spacing rhythm + hierarchy (8px scale)
+   Keeps the dark-gold OLED identity; adds breathing room.
+   ============================================================ */
+
+/* frame + panel breathing room */
+.app{padding:20px 26px;gap:18px}
+.panel-inner{padding:30px 34px}
+@media (max-width:860px){.app{padding:14px}.panel-inner{padding:20px 18px}}
+
+/* header hierarchy */
+.brand h1{font-size:1.24rem;letter-spacing:.1px}
+.topbar{padding:2px 4px 4px}
+.top-right{gap:10px}
+
+/* stage view — consistent vertical rhythm */
+.st-head{margin-bottom:8px;gap:20px}
+.st-title{font-size:1.6rem;letter-spacing:-.01em}
+.st-title small{margin-bottom:6px}
+.view .lead,.load .lead{line-height:1.62;margin-bottom:22px;max-width:66ch}
+.st-metrics{gap:12px}
+.metric{min-width:108px;padding:13px 17px;border-radius:16px}
+.metric .lab{font-size:.62rem}
+.metric .val{font-size:1.42rem;margin-top:3px}
+.chips{margin:22px 0 2px;gap:8px}
+.chip{padding:.28rem .62rem}
+.logs{margin-top:18px;gap:6px}
+.logline{padding:9px 13px;font-size:.79rem}
+.preview-head{margin:24px 0 10px}
+.preview{min-height:180px;border-radius:16px}
+.preview th,.preview td{padding:.5rem .85rem}
+
+/* action bar — more separation, roomier controls */
+.actions{gap:10px;margin-top:26px;padding-top:20px}
+.btn{padding:.64rem 1.1rem;border-radius:12px}
+.btn.wide{padding:.64rem 1.6rem}
+.dl-group{gap:10px;padding:9px 14px;border-radius:14px}
+.fmt-sel{padding:.4rem .5rem;border-radius:9px}
+
+/* metro rail — more room per step, clearer active state */
+.metro{padding:26px 16px}
+.metro h2{margin:2px 6px 20px 46px}
+.station{padding:9px 10px;margin:3px 0;gap:14px;border-radius:13px}
+.station .name{font-size:.84rem;line-height:1.2}
+.station .tag{margin-top:2px}
+
+/* inputs */
+.drops{gap:12px}
+.drop{padding:16px;border-radius:15px}
+
+/* home — calmer spacing */
+.home-left{gap:18px}
+.mode-card{padding:15px 17px}
+.sop>summary{padding:14px 18px}
+.sop-purpose{padding:14px 18px 6px;line-height:1.6}
+.sop-inputs{padding:2px 18px 12px}
+.sop-steps{gap:12px 26px;padding:8px 18px 18px}
+.sop-steps .sb b{font-size:.87rem;line-height:1.35}
+.zonepick{padding:16px 18px}
+.run-row{padding:.8rem 1.05rem}
+
+/* unified focus ring on all custom controls */
+.btn:focus-visible,.tab:focus-visible,.ghost-btn:focus-visible,.mode-card:focus-visible,
+.zp-opt:focus-visible,.run-row:focus-visible,.drop:focus-within{outline:2px solid var(--gold);outline-offset:2px}
+
+/* keep motion tasteful for entrance staggers */
+@media (prefers-reduced-motion:reduce){.station.active .dot{animation:none}}
