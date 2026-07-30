@@ -4,6 +4,16 @@ from pathlib import Path
 
 import pandas as pd
 
+# Excel reads dominate every stage's runtime. openpyxl is pure-Python and crawls
+# on large Datamarts (≈150s for 200k rows); python-calamine is a Rust reader that
+# does the same in seconds with byte-identical output. Pick it when available and
+# fall back to openpyxl so the app still runs if the wheel is missing.
+try:
+    import python_calamine  # noqa: F401
+    _XLSX_ENGINE = "calamine"
+except ImportError:  # pragma: no cover - depends on the deployed environment
+    _XLSX_ENGINE = "openpyxl"
+
 
 def norm_email(v) -> str:
     if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -20,13 +30,15 @@ def read_table(path, sheet_name=0) -> pd.DataFrame:
     if path.suffix.lower() == ".csv":
         df = pd.read_csv(path, dtype=str, keep_default_na=False)
     else:
-        df = pd.read_excel(path, sheet_name=sheet_name, dtype=str, engine="openpyxl")
+        df = pd.read_excel(path, sheet_name=sheet_name, dtype=str, engine=_XLSX_ENGINE)
         df = df.fillna("")
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
 
 def _sheet_names(path):
+    if _XLSX_ENGINE == "calamine":
+        return list(python_calamine.CalamineWorkbook.from_path(str(path)).sheet_names)
     import openpyxl
 
     wb = openpyxl.load_workbook(path, read_only=True)
