@@ -79,6 +79,20 @@ def test_single_zone_requires_pick_before_stage1(tmp_path):
     assert c.post(f"/api/runs/{rid}/advance").status_code == 409
 
 
+# ---- Final output download (Stage 14 deliverables) ----
+def test_final_file_download(tmp_path):
+    c = client(tmp_path)
+    rid = c.post("/api/runs", files={"file": dm_file()}).json()["run_id"]
+    fin = tmp_path / "runs" / rid / "final"
+    fin.mkdir(parents=True, exist_ok=True)
+    (fin / "Final Userbase.xlsx").write_bytes(b"XLSXDATA")
+    r = c.get(f"/api/runs/{rid}/final/Final Userbase.xlsx")
+    assert r.status_code == 200 and r.content == b"XLSXDATA"
+    assert c.get(f"/api/runs/{rid}/final/missing.xlsx").status_code == 404
+    # basename-sanitised: traversal cannot escape final/
+    assert c.get(f"/api/runs/{rid}/final/..%2f..%2fmanifest.json").status_code == 404
+
+
 # ---- Appended users get OT + valid-email gate (checklist fix) ----
 def test_append_defaults_ot_and_skips_invalid_emails():
     df = pd.DataFrame({

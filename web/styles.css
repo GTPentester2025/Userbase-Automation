@@ -386,6 +386,21 @@ button{font-family:inherit}
 .station.skipped .dot{opacity:.55}
 .station.skipped .tag{color:var(--faint);font-style:italic}
 
+/* ---------- final outputs (Stage 14) ---------- */
+.final-outputs{margin:20px 0 4px;padding:18px 20px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(84,208,138,.10),rgba(203,162,74,.05));
+  border:1px solid rgba(84,208,138,.35)}
+.fo-lab{display:flex;align-items:center;gap:8px;font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  font-weight:700;color:var(--grn);margin-bottom:14px}
+.fo-lab svg{width:15px;height:15px}
+.fo-row{display:flex;flex-wrap:wrap;gap:10px}
+.fo-btn{display:inline-flex;align-items:center;gap:9px;padding:.72rem 1.1rem;border-radius:12px;cursor:pointer;
+  font-size:.82rem;font-weight:600;color:var(--cream);
+  background:rgba(255,255,255,.04);border:1px solid var(--line);transition:all var(--t)}
+.fo-btn svg{width:16px;height:16px;color:var(--grn)}
+.fo-btn:hover{border-color:var(--grn);background:var(--grn-soft);transform:translateY(-1px)}
+.fo-btn:focus-visible{outline:2px solid var(--grn);outline-offset:2px}
+
 /* ============================================================
    Professional polish — spacing rhythm + hierarchy (8px scale)
    Keeps the dark-gold OLED identity; adds breathing room.

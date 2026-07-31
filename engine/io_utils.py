@@ -35,8 +35,12 @@ def is_valid_email(v) -> bool:
 def read_table(path, sheet_name=0) -> pd.DataFrame:
     path = Path(path)
     if path.suffix.lower() == ".csv":
+        # CSV is ~5x faster to read than xlsx for large Datamarts (no shared-string
+        # parse) — the recommended format for very large inputs.
         df = pd.read_csv(path, dtype=str, keep_default_na=False)
     else:
+        # dtype=str keeps numeric IDs as-typed ("123", not "123.0") — a raw
+        # calamine to_python() path is ~25% faster but renders ints as floats.
         df = pd.read_excel(path, sheet_name=sheet_name, dtype=str, engine=_XLSX_ENGINE)
         df = df.fillna("")
     df.columns = [str(c).strip() for c in df.columns]

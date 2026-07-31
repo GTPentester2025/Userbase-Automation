@@ -110,6 +110,7 @@ const api = {
     jfetch(`${BASE}api/runs/${id}/stages/${n}/preview?kind=${kind}&page=${page}&q=${encodeURIComponent(q || '')}`),
   replace: (id, n, file) => upload(`${BASE}api/runs/${id}/stages/${n}/replace`, file),
   downloadUrl: (id, n, kind, fmt) => `${BASE}api/runs/${id}/stages/${n}/download?kind=${kind}&fmt=${fmt}`,
+  finalUrl: (id, name) => `${BASE}api/runs/${id}/final/${encodeURIComponent(name)}`,
   logsUrl: id => `${BASE}api/runs/${id}/logs.zip`,
 };
 
@@ -259,7 +260,7 @@ async function renderHome() {
   const single = state.newMode === 'single_zone';
   const dz = el('label', 'drop drop-lg',
     `<span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-     Upload Datamart — ${single ? 'single-zone run' : 'new run'}</span><span class="f">.xlsx or .csv · first sheet is used${single ? ' · you\'ll pick the zone next' : ''}</span>`);
+     Upload Datamart — ${single ? 'single-zone run' : 'new run'}</span><span class="f">.xlsx or .csv · <b>CSV is ~5× faster</b> for large files${single ? ' · pick the zone next' : ''}</span>`);
   const inp = el('input');
   inp.type = 'file'; inp.accept = '.xlsx,.csv';
   inp.addEventListener('change', () => {
@@ -439,6 +440,22 @@ function renderPanel() {
   }
   v.appendChild(head);
   v.appendChild(el('div', 'lead', esc(DESCRIPTIONS[n] || '')));
+
+  // ── Final outputs (Stage 14) — the deliverables, downloadable immediately ──
+  if (entry && entry.stats && entry.stats.output_files && entry.stats.output_files.length) {
+    const fo = el('div', 'final-outputs');
+    fo.appendChild(el('div', 'fo-lab',
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Final outputs ready — download'));
+    const row = el('div', 'fo-row');
+    entry.stats.output_files.forEach(name => {
+      const b = el('button', 'fo-btn',
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>${esc(name)}</span>`);
+      b.addEventListener('click', () => window.open(api.finalUrl(state.runId, name)));
+      row.appendChild(b);
+    });
+    fo.appendChild(row);
+    v.appendChild(fo);
+  }
 
   // input dropzones
   const isFrontierView = !state.viewStage || state.viewStage === frontier();

@@ -128,6 +128,16 @@ def create_app(runs_dir=None) -> FastAPI:
             raise HTTPException(404, str(e))
         return FileResponse(p, filename=f"stage_{n:02d}_{kind}.{fmt}")
 
+    @app.get("/api/runs/{rid}/final/{name}")
+    def final_file(rid: str, name: str):
+        """Download a Stage 14 output (Final Userbase.xlsx / Removed_Users_Report.xlsx
+        / Automation_Report.xlsx). Filename is basename-sanitised to stay in final/."""
+        safe = Path(name).name
+        p = store.base_dir / rid / "final" / safe
+        if not p.exists():
+            raise HTTPException(404, "final file not found")
+        return FileResponse(p, filename=safe)
+
     @app.post("/api/runs/{rid}/stages/{n}/replace")
     def replace(rid: str, n: int, file: UploadFile):
         ts = datetime.now().strftime("%H%M%S")
