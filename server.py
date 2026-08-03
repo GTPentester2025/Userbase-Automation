@@ -174,6 +174,19 @@ def create_app(runs_dir=None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{rid}_logs.zip"'},
         )
 
+    # Force browsers to revalidate the UI assets every load. StaticFiles already
+    # returns ETag/Last-Modified (so revalidation is a cheap 304), but without a
+    # Cache-Control header browsers apply heuristic caching and keep serving a
+    # stale app.js/styles.css after a redeploy — which looks like "the new button
+    # isn't there". no-cache = use the cached copy only after revalidating.
+    @app.middleware("http")
+    async def _revalidate_ui(request, call_next):
+        resp = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.endswith((".html", ".js", ".css")):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     web = Path(__file__).parent / "web"
     if web.exists():
         app.mount("/", StaticFiles(directory=web, html=True))

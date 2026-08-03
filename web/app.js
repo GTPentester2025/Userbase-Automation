@@ -441,6 +441,32 @@ function renderPanel() {
   v.appendChild(head);
   v.appendChild(el('div', 'lead', esc(DESCRIPTIONS[n] || '')));
 
+  // ── Per-stage downloads — prominent, above the preview, on every completed stage ──
+  if (entry) {
+    const dl = el('div', 'stage-dl');
+    const head = el('div', 'sdl-head');
+    head.appendChild(el('span', 'sdl-lab', 'Download this stage'));
+    const fmtSel = el('select', 'fmt-sel', '<option value="xlsx">xlsx</option><option value="csv">csv</option>');
+    fmtSel.value = state.fmt;
+    fmtSel.addEventListener('change', () => { state.fmt = fmtSel.value; });
+    head.appendChild(fmtSel);
+    dl.appendChild(head);
+    const row = el('div', 'sdl-row');
+    const mkDl = (kind, label, count, cls) => {
+      const b = el('button', `sdl-btn ${cls}`,
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`
+        + `<span class="sdl-k">${label}</span><span class="sdl-c">${count.toLocaleString()}</span>`);
+      if (count === 0 && kind !== 'kept') { b.disabled = true; }
+      else b.addEventListener('click', () => window.open(api.downloadUrl(state.runId, n, kind, state.fmt)));
+      return b;
+    };
+    row.appendChild(mkDl('kept', 'Kept', entry.rows, 'k'));
+    row.appendChild(mkDl('removed', 'Removed', entry.removed, 'r'));
+    row.appendChild(mkDl('added', 'Added', entry.added, 'a'));
+    dl.appendChild(row);
+    v.appendChild(dl);
+  }
+
   // ── Final outputs (Stage 14) — the deliverables, downloadable immediately ──
   if (entry && entry.stats && entry.stats.output_files && entry.stats.output_files.length) {
     const fo = el('div', 'final-outputs');
@@ -556,20 +582,6 @@ function renderPanel() {
     return b;
   };
   if (entry) {
-    // Per-stage files — always available the moment the stage completes.
-    const dl = el('div', 'dl-group');
-    dl.appendChild(el('span', 'dl-lab', 'This stage'));
-    const fmtSel = el('select', 'fmt-sel', '<option value="xlsx">xlsx</option><option value="csv">csv</option>');
-    fmtSel.value = state.fmt;
-    fmtSel.addEventListener('change', () => { state.fmt = fmtSel.value; });
-    dl.appendChild(fmtSel);
-    dl.appendChild(mkBtn(`Kept (${entry.rows.toLocaleString()})`, () =>
-      window.open(api.downloadUrl(state.runId, n, 'kept', state.fmt))));
-    dl.appendChild(mkBtn(`Removed (${entry.removed.toLocaleString()})`, () =>
-      window.open(api.downloadUrl(state.runId, n, 'removed', state.fmt)), { disabled: entry.removed === 0 }));
-    dl.appendChild(mkBtn(`Added (${entry.added.toLocaleString()})`, () =>
-      window.open(api.downloadUrl(state.runId, n, 'added', state.fmt)), { disabled: entry.added === 0 }));
-    actions.appendChild(dl);
     const rep = mkBtn('Upload replacement…', null);
     const repInp = el('input');
     repInp.type = 'file'; repInp.accept = '.xlsx,.csv'; repInp.style.display = 'none';
